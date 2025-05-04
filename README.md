@@ -1,3 +1,4 @@
+中文
 数据处理脚本用户指南
 文本抽取与公司名标准化自动流程
 
@@ -141,8 +142,178 @@ python NA_step3_standardize_V4.py
 	•	✅ 所有处理过程透明、可追踪
 
 
+
+
+ 
+
+
 📬 技术支持
 
 如有任何疑问或改进建议，欢迎联系：
 
 原作者 / Author / 作成者：杨天乐（Shiame Yeung）
+
+日本語
+# 📘 データ処理スクリプト使用ガイド
+
+## ᾚ9 機能概要
+
+本スクリプトセット (Step1\~Step3)は、下記の三つの基本機能を実装します:
+
+1. 文書から本文を抽出し、文に分割
+2. 文中の会社名を自動識別
+3. 人力手入力によるマッピング情報に基づく標準化
+
+サブフォルダ構成（最大 2 階層、または親フォルダのみでも反応）に対応します。結果は `.csv` として出力されます。
+
+---
+
+## 🛠️ 環境準備
+
+### ✔️ Python 環境
+
+**Python 3.8 以上** を推奨します。開発環境として [Visual Studio Code](https://code.visualstudio.com/) の使用を推奨します。
+
+### ✔️ 依存ライブラリのインストール
+
+ターミナルのコマンドラインにて、以下を実行してください：
+
+```bash
+pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein
+python -m spacy download en_core_web_sm
+```
+
+---
+
+## 📂 ファイル構成
+
+処理対象ディレクトリには以下のファイルが含まれていること：
+
+```
+├── Word ファイル各端 (0~2階層 対応)
+├── NA_Step1_body_extract_V3.py
+├── NA_step2_company_recognizing_V9.py
+├── NA_step3_standardize_V4.py
+```
+
+---
+
+## 🚀 実行フロー
+
+### ▫ Step 1: キーワード文抽出
+
+**実行:**
+
+```bash
+python NA_Step1_body_extract_V3.py
+```
+
+**処理内容:**
+
+* `.docx` 文書を全部探索
+* `Body`から`Notes`までを抽出
+* 文分割 & キーワードマッチ
+* 結果は `keyword_hit.csv` に出力
+
+### ▫ Step 2: 会社名識別 + 初期標準化
+
+**実行:**
+
+```bash
+python NA_step2_company_recognizing_V9.py
+```
+
+**処理内容:**
+
+* `spaCy`と`fuzzywuzzy`の組合せで会社名を抽出
+* データベース: `NA_company_list.csv`を作成/更新
+* 人力検証用の`NA_mapping.csv`を作成
+* `banned`は認識されないように除外
+* 結果: `_recognized.csv`, `_log.csv`, `NA_mapping.csv`
+
+---
+
+### 📁 Step2 実行後：NA\_mapping.csv の執筆
+
+#### ‼️ 何故必要？
+
+Step2 完了後、未確定な会社名の列表 (`NA_mapping.csv`)が自動生成されます。この列を人力で執筆することで、Step3 の正確な処理が可能となります。
+
+#### 📋 NA\_mapping.csv の構成
+
+| NonStandard | Standard |
+| ----------- | -------- |
+| Apple Inc.  | Apple    |
+| Abcdef      | 0        |
+
+#### ✍️ "Standard"列の執筆規則:
+
+* 確定された会社名: `NA_company_list.csv` と一致する標準名を記述
+* 誤識の場合: `0`と記入
+* 空白 NG: 空のままの場合 Step3 は "Cannot be empty" と表示
+
+---
+
+### ▫ Step 3: 会社名の標準化
+
+**実行:**
+
+```bash
+python NA_step3_standardize_V4.py
+```
+
+**処理内容:**
+
+* 執筆済 `NA_mapping.csv`をもとに、`NA_company_list.csv`を更新
+* `banned` 標記がある名前を削除
+* 標準化した会社名に置換
+* `NA_mapping.csv`に `Result` 列が追加され、処理結果が記録
+
+---
+
+## 📆 よくある質問
+
+| 問題                   | 対処方法                  |
+| -------------------- | --------------------- |
+| `str accessor` エラー   | `.fillna('')` で空値を埋める |
+| `UnicodeDecodeError` | 文字コードをUTF-8に統一        |
+| ファイル互換               | 自動で重複を回避 `_1.csv` 等   |
+
+---
+
+## 🔖 前提知識
+
+### ✅ Step1:文字抽出
+
+* Word ドキュメントから Body\~Notes の本文を抽出
+* 文の分割、キーワード確認
+* 結果: `keyword_hit.csv`
+
+### ✅ Step2:会社名認識
+
+* spaCy + fuzzywuzzy を用い、文章中から会社名を抽出
+* 非標準名のログを自動記録
+* 結果: `_recognized.csv`, `NA_mapping.csv`
+
+### ✅ Step3:標準化編集
+
+* Step2 後の人力検証を元に、会社名を編集
+* banned 削除 + 標準名に置換
+* 結果: 更新済 `_recognized.csv`, `Result`列
+
+---
+
+## 📊 役立つポイント
+
+* 継続的に正確度の高い会社名データベースを構築
+* ついてに認識精度が高まり、人力検証の手間も減る
+* ファイル名の重複も自動で避けられる
+
+---
+
+## 📧 サポート
+
+ご不明点や助言がありましたら，下記の作成者までお気軽にお問い合わせください:
+
+**原作者 / Author / 作成者：楊天楽 (Shiame Yeung)**
+
