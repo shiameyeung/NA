@@ -170,7 +170,7 @@ python NA_step3_standardize_V4.py
 
 **原作者 / Author / 作成者：楊天楽 (Shiame Yeung)**
 
-# 中文（日本語は後ろで）
+# 中文
 # 📘 数据处理脚本用户指南（文本抽取与公司名标准化自动流程）
 
 ## 🧩 功能概述
