@@ -1,4 +1,5 @@
-📘 数据处理脚本用户指南（文本抽取与公司名标准化自动流程）
+数据处理脚本用户指南
+文本抽取与公司名标准化自动流程
 
 🧩 功能概述
 
@@ -9,7 +10,6 @@
 
 支持无文件夹结构、单层文件夹、最多两层文件夹的通用目录结构，输出为 .csv 文件。
 
-⸻
 
 🛠️ 环境准备
 
@@ -26,8 +26,6 @@ python -m spacy download en_core_web_sm
 
 
 
-⸻
-
 📂 文件结构要求
 
 处理目录中应包含以下内容：
@@ -39,7 +37,6 @@ python -m spacy download en_core_web_sm
 
 
 
-⸻
 
 🚀 脚本使用步骤
 
@@ -55,7 +52,7 @@ python NA_Step1_body_extract_V3.py
 	•	进行分句 + 关键词根匹配（如 partner, merger 等）
 	•	输出结果为 keyword_hit.csv，包含路径层级、命中关键词、命中句等信息
 
-⸻
+
 
 🔹 Step 2：公司名识别与初步标准化（NA_step2_company_recognizing_V9.py）
 
@@ -73,7 +70,6 @@ python NA_step2_company_recognizing_V9.py
 	•	NA_mapping.csv：自动生成待人工确认的非标准企业名
 	•	NA_company_list.csv：维护当前标准名及别名的数据库
 
-⸻
 
 ✍️ Step2 执行后，如何填写 NA_mapping.csv？
 
@@ -86,14 +82,14 @@ python NA_step2_company_recognizing_V9.py
 
 注意：不可留空！ 留空行会在 Step3 中被标记为 Cannot be empty 而跳过。
 
-⸻
+
 
 ✨ 标注建议
 	•	请确保大小写、空格与 NA_company_list.csv 中保持一致
 	•	中文/日文公司建议填写其英文通用名称（如无则填 0）
 	•	不要直接编辑 _recognized.csv，所有标准化操作都由 Step3 处理
 
-⸻
+
 
 🔹 Step 3：标准化公司名并更新识别结果（NA_step3_standardize_V4.py）
 
@@ -109,7 +105,7 @@ python NA_step3_standardize_V4.py
 	•	输出标准化后的 _recognized.csv
 	•	NA_mapping.csv 中新增 Result 列，标注处理状态（如 Done, Cannot be empty 等）
 
-⸻
+
 
 🧩 常见问题与解决方案
 
@@ -119,8 +115,6 @@ python NA_step3_standardize_V4.py
 ❗ 文件名被覆盖	脚本会自动生成 _recognized_1.csv, _2.csv 等防止覆盖
 
 
-
-⸻
 
 📝 处理逻辑总结
 
@@ -139,7 +133,6 @@ python NA_step3_standardize_V4.py
 	•	删除 banned 企业名
 	•	输出最终清洗过的公司名识别结果
 
-⸻
 
 🎯 工作机制优势
 	•	✅ 完整支持从文本抽取到公司名标准化的自动流程
@@ -147,7 +140,6 @@ python NA_step3_standardize_V4.py
 	•	✅ 智能处理文件命名、避免覆盖
 	•	✅ 所有处理过程透明、可追踪
 
-⸻
 
 📬 技术支持
 
