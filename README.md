@@ -1,159 +1,156 @@
-中文
-数据处理脚本用户指南
-文本抽取与公司名标准化自动流程
+# 🇨🇳 中文  
+# 📘 数据处理脚本使用手册  
 
-🧩 功能概述
+## 📌 功能概述  
 
-本脚本集（Step1~Step3）实现以下三大功能：
-	1.	从 Word 文件中抽取正文与句子
-	2.	识别句中公司名称并初步标准化
-	3.	根据人工填写的映射文件，完成公司名的清洗、标准化与剔除
+本脚本集合（Step1～Step3）主要实现以下三项核心功能：
 
-支持无文件夹结构、单层文件夹、最多两层文件夹的通用目录结构，输出为 .csv 文件。
+1. 从 Word 文档中提取正文，并按句拆分  
+2. 自动识别句子中的公司名称  
+3. 根据人工填写的映射表对公司名进行标准化处理  
 
+支持的目录结构包括：  
+- 最多两层子文件夹（如 年/月/文件.docx）  
+- 仅一层文件夹  
+- 无文件夹结构（文件直接放置）  
+输出文件格式统一为 `.csv`。
 
-🛠️ 环境准备
+---
 
-✅ Python 环境
+## 🛠️ 环境准备  
 
-建议使用 Python 3.8 或以上版本。推荐使用 Visual Studio Code 作为脚本运行与环境管理工具。
+### ✅ Python 环境  
 
-✅ 安装依赖
+建议使用 **Python 3.8 及以上版本**，推荐使用 [Visual Studio Code](https://code.visualstudio.com/) 管理和编辑开发环境。
 
-请在终端执行以下命令：
+### 📦 依赖库安装  
 
-pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein
+请在终端运行以下命令安装依赖：
+
+```bash
+pip install python-docx pandas openpyxl tqdm spacy fuzzywuzzy python-Levenshtein
 python -m spacy download en_core_web_sm
 
 
 
-📂 文件结构要求
+⸻
 
-处理目录中应包含以下内容：
+📁 文件结构示例
 
-├── Word 文件目录（支持 0~2 层子目录）
-├── NA_Step1_body_extract_V3.py
-├── NA_step2_company_recognizing_V9.py
-├── NA_step3_standardize_V4.py
+项目文件夹/
+├── NA_Step1_body_extract_V3.py         # Step1：关键词句子提取
+├── NA_step2_company_recognizing_V9.py  # Step2：公司名抽取与映射表生成
+├── NA_step3_standardize_V4.py          # Step3：标准化与清洗处理
+├── *.docx                               # Word 原始文件（用于 Step1）
+├── *.csv / *.xlsx                       # 数据文件（用于 Step2 和 Step3）
 
 
 
+⸻
 
-🚀 脚本使用步骤
+🧪 使用说明
 
-🔹 Step 1：关键词句子提取（NA_Step1_body_extract_V3.py）
+Step 1：关键词句子提取
 
-运行方式：
+▶ 使用方法：
 
 python NA_Step1_body_extract_V3.py
 
-处理逻辑：
-	•	自动遍历所有 .docx 文件
-	•	提取从 Body 到 Notes 之间的正文内容
-	•	进行分句 + 关键词根匹配（如 partner, merger 等）
-	•	输出结果为 keyword_hit.csv，包含路径层级、命中关键词、命中句等信息
+📋 处理逻辑：
+	•	遍历所有 .docx 文件，提取 Body 和 Notes 之间的正文
+	•	将正文按句子分割，匹配关键词根（如 partner, invest 等）
+	•	输出 keyword_hit.csv，包含匹配到关键词的句子与文件结构信息：
+
+字段名	说明
+Tier_1	第一级文件夹（如年份）
+Tier_2	第二级文件夹（如月份）
+Filename	Word文件名
+Sentence	句子内容
+Hit_Count	匹配关键词数量
+Matched_Keywords	命中的关键词根
 
 
 
-🔹 Step 2：公司名识别与初步标准化（NA_step2_company_recognizing_V9.py）
+⸻
 
-运行方式：
+Step 2：公司名识别与映射表生成
+
+▶ 使用方法：
 
 python NA_step2_company_recognizing_V9.py
 
-处理逻辑：
-	•	读取上一步输出的 keyword_hit.csv
-	•	使用 spaCy 模型 + fuzzywuzzy 模糊匹配识别公司名
-	•	自动过滤标记为 banned 的公司
-	•	输出：
-	•	_recognized.csv：句子 + 识别出的公司名
-	•	_log.csv：处理过程记录
-	•	NA_mapping.csv：自动生成待人工确认的非标准企业名
-	•	NA_company_list.csv：维护当前标准名及别名的数据库
+📋 处理逻辑：
+	•	使用 spaCy 模型及模糊匹配（fuzzywuzzy）识别公司名
+	•	自动创建或更新以下文件：
+	•	NA_company_list.csv：标准公司名与别名映射表
+	•	NA_mapping.csv：识别后尚无法标准化的公司名清单（待人工填写）
+	•	每个原始输入文件会输出两个新文件：
+	•	*_recognized.csv：原句 + 提取的公司名（列如 Company_1, Company_2…）
+	•	*_log.csv：记录每条被提取公司的原句与结果
+
+⸻
+
+✍️ Step 2 后需人工操作：填写映射表 NA_mapping.csv
+
+为什么需要人工标注？
+
+Step2 后生成的 NA_mapping.csv 中包含模型无法确定标准名的公司名，需要人工确认后 Step3 才能完成标准化。
+
+文件结构说明：
+
+列名	内容
+NonStandard	被识别出的公司名（原文）
+Standard	对应的标准公司名
+Result	Step3 中处理结果备注
+
+填写规则：
+
+情况	操作
+能对应某标准公司名	填写标准名（与 NA_company_list.csv 中保持一致）
+明显不是公司名 / 识别错误	填写 0，表示禁止识别（banned）
+留空	不允许，Step3 会提示 "Cannot be empty" 并跳过该项
 
 
-✍️ Step2 执行后，如何填写 NA_mapping.csv？
 
-执行完 Step2 后，会生成 NA_mapping.csv 文件（列：NonStandard, Standard）。请根据以下规则人工填写：
+⸻
 
-情况	应该填写的 Standard
-该名称是合法公司名	正确填写标准公司名（与 NA_company_list.csv 中一致）
-该名称是错误识别	填写 0，表示“banned”
-不确定是否为公司名	建议暂时填写 0（可后续修正）
+Step 3：公司名标准化处理
 
-注意：不可留空！ 留空行会在 Step3 中被标记为 Cannot be empty 而跳过。
-
-
-
-✨ 标注建议
-	•	请确保大小写、空格与 NA_company_list.csv 中保持一致
-	•	中文/日文公司建议填写其英文通用名称（如无则填 0）
-	•	不要直接编辑 _recognized.csv，所有标准化操作都由 Step3 处理
-
-
-
-🔹 Step 3：标准化公司名并更新识别结果（NA_step3_standardize_V4.py）
-
-运行方式：
+▶ 使用方法：
 
 python NA_step3_standardize_V4.py
 
-处理逻辑：
-	•	读取用户填写的 NA_mapping.csv
-	•	更新公司标准名数据库 NA_company_list.csv
-	•	清除识别结果中的 banned 公司名
-	•	替换为用户填写的标准名称
-	•	输出标准化后的 _recognized.csv
-	•	NA_mapping.csv 中新增 Result 列，标注处理状态（如 Done, Cannot be empty 等）
+📋 处理逻辑：
+	•	根据 NA_mapping.csv 填写结果更新 NA_company_list.csv
+	•	将 *_recognized.csv 中的公司名替换为标准公司名
+	•	删除标记为 banned 的公司名
+	•	更新后的 NA_mapping.csv 会添加 Result 列，标注处理状态
+
+⸻
+
+❓ 常见问题
+
+问题提示	解决办法
+AttributeError: Can only use .str accessor...	确保 Aliases 列没有缺失值，使用 .fillna('') 处理
+UnicodeDecodeError	检查 CSV 编码，建议统一保存为 UTF-8
+文件被覆盖	系统自动生成唯一文件名，如 _recognized_1.csv 等
 
 
 
-🧩 常见问题与解决方案
+⸻
 
-问题	说明与解决办法
-❗ Can only use .str accessor with string values!	检查 NA_company_list.csv 中是否存在空值，使用 .fillna('') 预处理
-❗ UnicodeDecodeError	某些 CSV 文件编码格式异常，建议统一使用 UTF-8 保存
-❗ 文件名被覆盖	脚本会自动生成 _recognized_1.csv, _2.csv 等防止覆盖
+💡 使用建议
+	•	Step2 每次运行都会新建 NA_mapping.csv，请及时备份旧版
+	•	Step3 前务必确认 NA_mapping.csv 全部填写完毕
+	•	文件较多时可批量分批处理，减少内存占用
+	•	可定期维护 NA_company_list.csv 以提升自动匹配效率
 
+⸻
 
-
-📝 处理逻辑总结
-
-✅ Step1（文本句子提取）
-	•	提取 Word 文件中的 Body 段落
-	•	进行句子切分与关键词匹配
-	•	输出所有命中句子的结构化结果 CSV
-
-✅ Step2（公司名抽取与初步标准化）
-	•	自动识别句中的企业名
-	•	标注 banned、构建映射表与标准化表
-	•	输出日志与待人工确认表格
-
-✅ Step3（标准化公司名）
-	•	根据用户标注标准化公司名
-	•	删除 banned 企业名
-	•	输出最终清洗过的公司名识别结果
+如有问题请联系原作者：杨天乐 / Shiame Yeung
 
 
-🎯 工作机制优势
-	•	✅ 完整支持从文本抽取到公司名标准化的自动流程
-	•	✅ 可迭代式数据库构建，匹配越多越智能
-	•	✅ 智能处理文件命名、避免覆盖
-	•	✅ 所有处理过程透明、可追踪
-
-
-
-
- 
-
-
-📬 技术支持
-
-如有任何疑问或改进建议，欢迎联系：
-
-原作者 / Author / 作成者：杨天乐（Shiame Yeung）
-
-日本語
+# 日本語
 # 📘 データ処理スクリプト使用ガイド
 
 ## ᾚ9 機能概要
