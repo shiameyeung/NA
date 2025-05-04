@@ -320,7 +320,7 @@ python NA_step3_standardize_V4.py
 ### ✅ Step3:標準化編集
 
 * Step2 後の人力検証を元に、会社名を編集
-* banned 削除 + 標準名に置換
+* banned 削除 、標準名があったら標準名に置換
 * 結果: 更新済 `_recognized.csv`, `Result`列
 
 ---
