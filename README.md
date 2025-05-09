@@ -25,7 +25,7 @@
 
 ### ✔️ Python 環境
 
-**Python 3.8 以上** を推奨します。開発環境として [Visual Studio Code](https://code.visualstudio.com/) の使用を推奨します。
+**Python 3.9** を推奨します。開発環境として [Visual Studio Code](https://code.visualstudio.com/) の使用を推奨します。
 
 ### ✔️ 依存ライブラリのインストール
 
@@ -199,7 +199,7 @@ Step3： 根据人工填写的映射信息（标准公司名与类似名称的�
 
 ### ✅ Python 环境
 
-建议使用 Python 3.8 或以上版本。推荐使用 Visual Studio Code 作为脚本运行与环境管理工具。
+建议使用 Python 3.9。推荐使用 Visual Studio Code 作为脚本运行与环境管理工具。
 
 ### ✅ 安装依赖
 
