@@ -32,7 +32,7 @@
 ターミナルのコマンドラインにて、以下を実行してください：
 
 ```bash
-pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein
+pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein python-docx
 python -m spacy download en_core_web_sm
 ```
 
@@ -206,7 +206,7 @@ Step3： 根据人工填写的映射信息（标准公司名与类似名称的�
 请在终端执行以下命令：
 
 ```bash
-pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein
+pip install pandas openpyxl spacy fuzzywuzzy tqdm python-Levenshtein python-docx
 python -m spacy download en_core_web_sm
 ```
 
