@@ -359,6 +359,21 @@ python NA_step3_standardize_V4.py
 
 **协助 / In cooperation with / 協力：李宗昊（Zonghao Li）**
 
+macOS
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install python
+pip3 install pandas tqdm python-docx spacy fuzzywuzzy
+python3 -m spacy download en_core_web_sm
+
+Windows
+https://www.python.org/downloads/windows/（3.9）
+python3 --version
+pip3 --version
+python3 -m pip install --upgrade pip
+pip3 install pandas tqdm python-docx spacy fuzzywuzzy
+python3 -m spacy download en_core_web_sm
+
+
 
 
 
