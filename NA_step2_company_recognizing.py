@@ -110,6 +110,7 @@ def prepare_mapping_tables(script_dir):
 
     comp_df = pd.read_csv(comp_list_path)
     # 确保 Aliases 列为字符串
+    comp_df['Standard_Name'] = comp_df['Standard_Name'].fillna('').astype(str).str.strip()
     comp_df['Aliases'] = comp_df['Aliases'].fillna('').astype(str)
 
     # 计算 banned 列表
