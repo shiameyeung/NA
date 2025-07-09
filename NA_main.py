@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # coding: utf-8
 """
-2025‑07‑10 
+na_pipeline.py  ——  单文件版（Step‑1 对齐 + 扩展公司识别）
+2025‑07‑08  rev‑C
 """
 
 import os, re, sys, unicodedata, string
@@ -464,43 +465,53 @@ def step3(mysql_url: str):
 
         # 2) 逐行处理 mapping
         for idx, row in df_map.iterrows():
-            alias = row["Alias"].strip()
-            canon = row["Canonical_Name"].strip()
+            alias_raw = row["Alias"].strip()
+            canon_input = row["Canonical_Name"].strip()
 
-            if not canon:
+            if not canon_input:                       # —— 空白
                 df_map.at[idx, "Std_Result"] = "No input"
                 continue
 
-            # 2-A Ban
-            if canon == "0":
-                if alias not in ban_set:
-                    conn.execute(text("INSERT IGNORE INTO ban_list(alias) VALUES (:a)"), {"a": alias})
-                    ban_set.add(alias)
+            # === ① Ban（输入 0） ===
+            if canon_input == "0":
+                if alias_raw not in ban_set:
+                    conn.execute(text(
+                        "INSERT IGNORE INTO ban_list(alias) VALUES (:a)"
+                    ), {"a": alias_raw})
+                    ban_set.add(alias_raw)
                 df_map.at[idx, "Std_Result"] = "Banned"
                 continue
 
-            # 2-B 已有映射
-            if alias in alias_map:
+            # === ② 用户输入数字 → 视为 canonical_id ===
+            if canon_input.isdigit():
+                cid = int(canon_input)
+                if cid not in canon_map:              # id 不存在
+                    df_map.at[idx, "Std_Result"] = "Bad ID"
+                    continue
+                canon_name = canon_map[cid]           # ← id → name
+                canon_id   = cid
+            else:
+                canon_name = canon_input              # 用户直接写的文本
+                # 若文本不存在于 canonical 表 → 新建
+                if canon_name not in canon_rev:
+                    res = conn.execute(text(
+                        "INSERT INTO company_canonical(canonical_name) VALUES (:c)"
+                    ), {"c": canon_name})
+                    canon_id = res.lastrowid
+                    canon_rev[canon_name] = canon_id
+                    canon_map[canon_id] = canon_name
+                else:
+                    canon_id = canon_rev[canon_name]
+
+            # === ③ 写 alias（如已存在则跳过） ===
+            if alias_raw in alias_map:
                 df_map.at[idx, "Std_Result"] = "Exists"
                 continue
 
-            # 2-C canonical 不存在 → 新建
-            if canon not in canon_rev:
-                res = conn.execute(
-                    text("INSERT INTO company_canonical(canonical_name) VALUES (:c)"),
-                    {"c": canon}
-                )
-                canon_id = res.lastrowid
-                canon_rev[canon] = canon_id
-            else:
-                canon_id = canon_rev[canon]
-
-            # 2-D 写 alias
-            conn.execute(
-                text("INSERT IGNORE INTO company_alias(alias, canonical_id) VALUES (:a, :cid)"),
-                {"a": alias, "cid": canon_id}
-            )
-            alias_map[alias] = canon
+            conn.execute(text(
+                "INSERT IGNORE INTO company_alias(alias, canonical_id) VALUES (:a, :cid)"
+            ), {"a": alias_raw, "cid": canon_id})
+            alias_map[alias_raw] = canon_name
             df_map.at[idx, "Std_Result"] = "Added"
 
     # 3) 应用最新映射到 result.csv
