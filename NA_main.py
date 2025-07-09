@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # coding: utf-8
 """
-na_pipeline.py  ——  单文件版（Step‑1 对齐 + 扩展公司识别）
-2025‑07‑08  rev‑C
+2025‑07‑10 
 """
 
 import os, re, sys, unicodedata, string
@@ -31,11 +30,48 @@ KEYWORD_ROOTS = [
     'takeover','accession','procure','suppl','conjoint','support','adjust',
     'adjunct','patronag','subsid','affiliat','endors'
 ]
+# ---------------- Bad-Rate 规则 ----------------
+ORG_SUFFIX  = re.compile(
+    r'\b(Inc\.?|Corp\.?|Corporation|Ltd\.?|LLC|PLC|AG|NV|SA|GmbH|S\.p\.A|Co\.?|Company|'
+    r'Group|Holdings?|Partners?|Capital|Ventures?|Bank|Trust|Software|'
+    r'Technolog(?:y|ies)|Pharma(?:ceuticals)?|Systems?|Services?|'
+    r'Industr(?:y|ies)|Foundation|Laborator(?:y|ies)|'
+    r'University|College|Institute|School|Hospital|Center|Centre)\b',
+    re.I)
+
+TIME_QTY    = re.compile(
+    r'\b(year|month|week|day|decade|centur(?:y|ies)|quarter|q[1-4]|'
+    r'ago|last|next|few|couple|several|dozen|half|around|approximately)s?\b',
+    re.I)
+ART_LOWER   = re.compile(r'^\s*(a|an|about|approximately|the|this|that|those)\s+[a-z]')
+GENERIC_END = re.compile(
+    r'\b(plan|plans?|programs?|systems?|platforms?|services?|solutions?|operations?|'
+    r'agreements?|strategies?|reports?|statements?)$', re.I)
+
+def _lower_ratio(text: str) -> float:
+    w = text.split()
+    return sum(t[0].islower() for t in w) / len(w) if w else 0
+
+def calc_bad_rate(text: str) -> int:
+    """0–100：越高越可能是 bad"""
+    if ORG_SUFFIX.search(text):
+        return 0
+    score = 0
+    if TIME_QTY.search(text):              score += 40
+    if ART_LOWER.match(text):              score += 25
+    if ' of the ' in text.lower():         score += 20
+    if GENERIC_END.search(text):           score += 15
+    if len(text.split()) <= 2:             score += 20
+    if _lower_ratio(text) > 0.30:          score += 20
+    return min(score, 100)
+# ---------------- 全局变量 ----------------
 BASE_DIR = Path(__file__).resolve().parent
 MAX_COMP_COLS = 50
 SENTENCE_RECORDS: List[Dict] = []
 
 # ---------------- 共用 ----------------
+
+
 
 # ------- 新版本：首次输入后写 .db_key，后续自动读取 -------
 def ask_mysql_url() -> str:
@@ -56,12 +92,14 @@ def choose() -> str:
 
 def dedup_company_cols(df: pd.DataFrame) -> pd.DataFrame:
     comp_cols = [c for c in df.columns if c.startswith("company_")]
-    for _, row in df.iterrows():
+    for ridx in df.index:
         seen: Set[str] = set()
         for col in comp_cols:
-            val = str(row[col]).strip()
-            row[col] = "" if val in seen else val
-            seen.add(val)
+            val = str(df.at[ridx, col]).strip()
+            if val in seen:
+                df.at[ridx, col] = ""
+            else:
+                seen.add(val)
     return df
 
 # ---------------- Step‑1 ----------------
@@ -157,66 +195,13 @@ def step1():
     global SENTENCE_RECORDS
     SENTENCE_RECORDS = all_recs
     print(f"✔ Step-1 完成：共 {len(all_recs)} 条记录（已缓存）")
-# ---------------- Step‑2 核心函数修订 ----------------
 
-def is_valid_token(tok:str)->bool:
-    tok=tok.strip()
-    if not tok or all(c in "-–—・.、。！？／ー" for c in tok): return False
-    if re.search(r"\d",tok) and not re.search(r"[A-Za-z]",tok): return False
-    return True
-
-def extract_companies(text:str, company_db:List[str], ner, thresh:int=95)->List[str]:
-    comps:set[str]=set(); txt=re.sub(r"\s*\d{1,2}/\d{1,2}/\d{2,4}.*$","",text).strip()
-    # 1) spaCy ORG
-    for e in ner(txt).ents:
-        if e.label_=="ORG" and is_valid_token(e.text): comps.add(e.text.strip())
-    # 2) token fuzzy
-    for pos,raw in enumerate(re.findall(r"\b\S+\b",txt)):
-        if pos==0 or raw.lower() in STOPWORDS: continue
-        tok=raw.split("@")[ -1 ].split("/")[-1].strip(".,()")
-        if len(tok)<3 or not tok[0].isupper() or not is_valid_token(tok): continue
-        best,score,_=process.extractOne(tok,company_db,scorer=fuzz.token_set_ratio)
-        if score>=thresh: comps.add(best)
-    # 3) ≤3-word Caps phrase
-    for m in re.finditer(r"(?:[A-Z][\w&’\-]+(?:\s+[A-Z][\w&’\-]+){0,2})",txt):
-        phrase=m.group(0).strip()
-        if phrase.isupper() and len(phrase)<3: continue
-        comps.add(phrase)
-    return list(comps)
-
-# ---- 其余 step2, step3, main 与上一版一致 ----
-
-
-# ---------------- Step‑2 核心函数修订 ----------------
-
-def is_valid_token(tok:str)->bool:
-    tok=tok.strip()
-    if not tok or all(c in "-–—・.、。！？／ー" for c in tok): return False
-    if re.search(r"\d",tok) and not re.search(r"[A-Za-z]",tok): return False
-    return True
-
-def extract_companies(text:str, company_db:List[str], ner, thresh:int=95)->List[str]:
-    comps:set[str]=set(); txt=re.sub(r"\s*\d{1,2}/\d{1,2}/\d{2,4}.*$","",text).strip()
-    # 1) spaCy ORG
-    for e in ner(txt).ents:
-        if e.label_=="ORG" and is_valid_token(e.text): comps.add(e.text.strip())
-    # 2) token fuzzy
-    for pos,raw in enumerate(re.findall(r"\b\S+\b",txt)):
-        if pos==0 or raw.lower() in STOPWORDS: continue
-        tok=raw.split("@")[ -1 ].split("/")[-1].strip(".,()")
-        if len(tok)<3 or not tok[0].isupper() or not is_valid_token(tok): continue
-        best,score,_=process.extractOne(tok,company_db,scorer=fuzz.token_set_ratio)
-        if score>=thresh: comps.add(best)
-    # 3) ≤3-word Caps phrase
-    for m in re.finditer(r"(?:[A-Z][\w&’\-]+(?:\s+[A-Z][\w&’\-]+){0,2})",txt):
-        phrase=m.group(0).strip()
-        if phrase.isupper() and len(phrase)<3: continue
-        comps.add(phrase)
-    return list(comps)
 # ----------------—— Step‑2 ——----------------
 
 def is_valid_token(token: str) -> bool:
     token = token.strip()
+    if "@" in token or token.startswith("http"):    # ① 含邮箱 / URL 特征
+        return False
     if not token or all(c in "-–—・.、。！？／ー" for c in token):
         return False
     if re.search(r"\d", token) and not re.search(r"[A-Za-z]", token):
@@ -226,44 +211,79 @@ def is_valid_token(token: str) -> bool:
     return True
 
 
-def extract_companies(text: str, company_db: List[str], ner_model, fuzzy_threshold: int = 95) -> List[str]:
+# —— 4. 原始企业名提取 ——
+# —— 4. 原始企业名提取 ——
+def extract_companies(text: str,
+                      company_db: List[str],
+                      ner_model,
+                      fuzzy_threshold: int = 95) -> List[str]:
+    """
+    · **仅负责“把句子里可能是公司名的片段全部抓出来”**，
+      不做任何 ban/映射/去重处理——这些留给后续数据库比对阶段完成。
+    · 识别逻辑完全沿用单体版（spaCy NER + “IBMers”正则 + 严格模糊匹配）。
+    """
     comps: Set[str] = set()
-    text_clean = re.sub(r"\s*\d{1,2}/\d{1,2}/\d{2,4}.*$", "", text).strip()
 
-    # 1) spaCy ORG 实体
+    # 1) 去掉日期（排除 ‘xx/xx/xxxx 之后整段’ 的噪音）
+    text_clean = re.sub(r"\s*\d{1,2}/\d{1,2}/\d{2,4}.*$", "", text).strip()
+    # --- 新增清洗 ---
+    # 1) 去掉 ® ™ ©
+    text_clean = re.sub(r"[®™©]", "", text_clean)
+    # 2) 去掉简写商标括号，如 “Weight Doctors(R)”
+    text_clean = re.sub(r"\(\s*[A-Z]{1,3}\s*\)", "", text_clean)
+    # 3) 整句里带邮箱的直接剪掉邮箱
+    text_clean = re.sub(r"\b\S+@\S+\b", "", text_clean)
+
+    # 2) spaCy NER
     doc = ner_model(text_clean)
     for ent in doc.ents:
-        if ent.label_ != "ORG":
-            continue
         ent_text = ent.text.strip()
-        if "  " in ent_text or re.search(r"[\d/%+]", ent_text):
+
+        # —— 基础噪音过滤（和单体版一致）
+        if "  " in ent_text or re.search(r"[\d/%+]|[^\x00-\x7F]", ent_text):
             continue
         valid_ent = True
         for w in ent_text.split():
-            if not w[0].isalpha() or w in STOPWORDS or not is_valid_token(w):
-                valid_ent = False; break
+            if (not w[0].isalpha()
+                or w in {"The","And","For","With","From","That","This"}
+                or not is_valid_token(w)):
+                valid_ent = False
+                break
         if valid_ent:
             comps.add(ent_text)
 
-    # 2) token‑级模糊匹配兜底
+    # 3) “IBMers” 一类写法
+    for m in re.findall(r"\b([A-Z]{2,})ers\b", text_clean):
+        comps.add(m)
+
+    # 4) 仅用于“确认是已知公司”，但依旧返回原词
+    STOPWORDS = {"The","And","For","With","From","That","This","Have","Will",
+                "Are","You","Not","But","All","Any","One","Our","Their"}
+
     tokens = re.findall(r"\b\S+\b", text_clean)
     for pos, token in enumerate(tokens):
-        if pos == 0 or token in STOPWORDS:
+        # —— 噪音与格式过滤（同原先逻辑） ——
+        if (pos == 0 or token in STOPWORDS
+            or any(ch in token for ch in "/%+") or "  " in token
+            or len(token) < 5 or not token[0].isupper() or token.isupper()
+            or re.search(r"\d|[^\x00-\x7F]", token)
+            or not is_valid_token(token)):
             continue
-        if any(ch in token for ch in "/%+") or "  " in token:
-            continue
-        if len(token) < 5 or not token[0].isupper() or token.isupper():
-            continue
-        if re.search(r"\d|[^\x00-\x7F]", token) or not is_valid_token(token):
-            continue
-        best, score, _ = process.extractOne(token, company_db, scorer=fuzz.token_set_ratio)
-        if score >= fuzzy_threshold:
-            comps.add(best)
+
+        # 若数据库里存在“完全同名（大小写不同视同）”的条目，就保留；否则忽略
+        if any(token.lower() == db.lower() for db in company_db):
+            comps.add(token)
+
     return list(comps)
 
 
 def step2(mysql_url: str):
     print("\n▶ Step-2: 公司识别 + ban 过滤 …")
+    # 单独导出 canonical 表（engine_tmp）
+    engine_tmp = create_engine(mysql_url)            # ← 新建
+    df_canon = pd.read_sql("SELECT id, canonical_name FROM company_canonical", engine_tmp)
+    df_canon.to_csv(BASE_DIR / "canonical_list.csv", index=False, encoding="utf-8-sig")
+    print(f"   · canonical_list.csv 已写 {len(df_canon)} 行")
     # ---- 连接数据库 ----
     engine = create_engine(mysql_url)
     with engine.begin() as conn:
@@ -281,20 +301,66 @@ def step2(mysql_url: str):
     if df_hit.empty:
         print("❌ Step-1 没提取到任何句子，无法继续 Step-2"); return
 
-    company_db = list(canon_set)
+    company_db = list(canon_set) + list(alias_map.keys())   # canonical + alias
     comp_cols: List[List[str]] = []
     for sent in tqdm(df_hit["Sentence"].tolist(), desc="公司识别"):
-        names_raw = extract_companies(sent, company_db, nlp, 95)
+        names_raw = extract_companies(sent, company_db, nlp)
         uniq: List[str] = []
         for alias in names_raw:
-            mapped = alias_map.get(alias, alias)
-            if mapped in ban_set or mapped in uniq:
+            if alias in uniq:     
                 continue
-            uniq.append(mapped)
+            uniq.append(alias)                         # 保留句面原词，不做任何替换
         comp_cols.append(uniq[:MAX_COMP_COLS])
 
     for i in range(MAX_COMP_COLS):
         df_hit[f"company_{i+1}"] = [lst[i] if i < len(lst) else "" for lst in comp_cols]
+        
+# === ③ 先按数据库规则处理每行 company_n 列 ===
+    ban_lower     = {b.lower() for b in ban_set}
+    canon_lower   = {c.lower() for c in canon_set}
+    alias_lower   = {a.lower(): canon for a, canon in alias_map.items()}
+    canon_lower2orig = {c.lower(): c for c in canon_set}
+    # —— 标准化：去掉所有非字母数字，再小写
+    def _norm_key(s: str) -> str:
+        return re.sub(r"[^A-Za-z0-9]", "", s).lower()
+
+    comp_cols = [f"company_{i+1}" for i in range(MAX_COMP_COLS)]
+
+    for ridx in df_hit.index:
+        orig_names = [df_hit.at[ridx, c].strip() for c in comp_cols if df_hit.at[ridx, c].strip()]
+        new_names  = []
+        for nm in orig_names:
+            nm_l = nm.lower()
+            # ① ban → 丢弃
+            if nm_l in ban_lower:
+                continue
+            # ② 已是标准名 → 保留原样
+            if nm_l in canon_lower:
+                new_names.append(canon_lower2orig[nm_l])
+                continue
+            # ③ 别名 → 替换为对应 canonical
+            if nm_l in alias_lower:
+                new_names.append(alias_lower[nm_l])
+                continue
+            # ④ 未知 → 原样
+            new_names.append(nm)
+
+        # ⑤ 顺位左移 + “同根” 去重
+        cleaned = []
+        seen_keys = set()
+        for nm in sorted(new_names, key=len, reverse=True):           # 先长后短
+            key = _norm_key(nm)
+            # 1) 与已选任何名称 key 前缀 / 后缀 相同 → 视为重复
+            if any(key in k or k in key for k in seen_keys):
+                continue
+            cleaned.append(nm)
+            seen_keys.add(key)
+        # ⑥ 写回行（不足补空，用 .at）
+        for i, col in enumerate(comp_cols):
+            df_hit.at[ridx, col] = cleaned[i] if i < len(cleaned) else ""
+
+
+    # === ④ 继续原流程写 result.csv（下方原代码保持不变） ===
 
     # ---- 组装精简版 result.csv ----
     meta_cols = ["Tier_1", "Tier_2", "Filename",
@@ -310,28 +376,54 @@ def step2(mysql_url: str):
                     index=False, encoding="utf-8-sig")
     print(f"   · result.csv 已写，共 {len(df_final)} 条记录")
 
-    # ---- 生成 mapping_todo.csv ----
+       # ---- 生成 mapping_todo.csv ----
     todo_rows: List[Dict] = []
-    for _, row in df_final.iterrows():          # 只遍历最终结果
-        for alias in (row[c] for c in df_final.columns
-                      if c.startswith("company_")):
-            alias = alias.strip()
-            if (not alias or alias in alias_map
-                    or alias in canon_set or alias in ban_set):
+    for _, row in df_final.iterrows():
+        for alias in (row[c].strip()
+                    for c in df_final.columns if c.startswith("company_")
+                    if row[c].strip()):
+            if alias in ban_set or alias in alias_map or alias in canon_set:
                 continue
-            if any(fuzz.token_set_ratio(alias, canon) >= 85
-                   for canon in canon_set):
-                continue
+                        # —— 与 canonical 表做模糊匹配，给用户参考 ——
+            advice, score, _ = process.extractOne(
+                alias,
+                list(canon_set),
+                scorer=fuzz.WRatio) if canon_set else ("", 0, None)
+            advice = advice if score >= 85 else ""
+
             todo_rows.append({
                 "Sentence":       row["Sentence"],
                 "Alias":          alias,
+                "Bad_Rate":       calc_bad_rate(alias),
+                "Advice":         advice,      # ← 新列
                 "Canonical_Name": "",
                 "Std_Result":     ""
             })
 
+    # ① 组装 DataFrame
+    
+    for r in todo_rows:
+        r["Alias_lower"] = r["Alias"].lower()
     todo_df = (pd.DataFrame(todo_rows)
-               .drop_duplicates("Alias")
-               .sort_values("Alias"))
+            .drop_duplicates("Alias_lower")
+            .drop(columns="Alias_lower"))
+
+    # ② 分组排序：0=High(≥60) → 1=Mid(30-59) → 2=Low(<30)
+    todo_df["__grp"] = todo_df["Bad_Rate"].apply(
+        lambda x: 0 if x >= 60 else (1 if x >= 30 else 2)
+    )
+    todo_df = (todo_df
+               .sort_values(["__grp", "Sentence"], ascending=[True, True])
+               .drop(columns="__grp"))
+
+    # ③ 固定列顺序（可选）
+    todo_df = todo_df[["Sentence", "Alias", "Bad_Rate",
+                   "Advice",          # ← 新列位置
+                   "Canonical_Name", "Std_Result"]]
+
+    # ④ 显示成百分比后写文件（排序已完成，安全）
+    todo_df["Bad_Rate"] = todo_df["Bad_Rate"].astype(int).astype(str) + "%"
+
     todo_df.to_csv(BASE_DIR / "mapping_todo.csv",
                    index=False, encoding="utf-8-sig")
     print(f"   · mapping_todo.csv 生成 {len(todo_df)} 条记录")
@@ -405,7 +497,7 @@ def step3(mysql_url: str):
 
             # 2-D 写 alias
             conn.execute(
-                text("INSERT INTO company_alias(alias, canonical_id) VALUES (:a, :cid)"),
+                text("INSERT IGNORE INTO company_alias(alias, canonical_id) VALUES (:a, :cid)"),
                 {"a": alias, "cid": canon_id}
             )
             alias_map[alias] = canon
