@@ -80,15 +80,30 @@ def ask_mysql_url() -> str:
     if key_file.exists():
         key = key_file.read_text().strip()
     else:
-        key = input("请输入秘钥：user:pass@host\n>>>>>> ").strip()
+        key = input("请输入秘钥/キーを入力してください：user:pass@host\n>>>>>> ").strip()
         key_file.write_text(key)                     # 缓存下次用
     return f"mysql+pymysql://{key}.mysql.rds.aliyuncs.com:3306/na_data?charset=utf8mb4"
 
 def choose() -> str:
-    print("\n1) 初次运行（Step-1 ➜ Step-2）\n2) 适用 mapping（Step-3）")
-    c = input("输入 1 或 2：").strip();
+    # ── 1. 选项框 ───────────────────────────────────────────
+    print(r"""
+┌──────────────────────────────────────────────┐
+│  ①  初次运行（Step-1 ➜ Step-2） / 初回実行      │
+│  ②  已有 mapping（Step-3） / mapping 適用のみ  │
+│  作者：楊　天楽＠関西大学　伊佐田研究室             │
+└──────────────────────────────────────────────┘
+""")
+    c = input("请输入 1 或 2 / 1 か 2 を入力してください: ").strip()
+
+    # ── 2. 校验 ───────────────────────────────────────────
     if c not in {"1", "2"}:
-        print("❌ 无效选择"); sys.exit(1)
+        print(r"""
+┌──────────────────────────┐
+│  ❌ 无效选择 / 無効な選択です  │
+└──────────────────────────┘
+""")
+        sys.exit(1)
+
     return c
 
 def dedup_company_cols(df: pd.DataFrame) -> pd.DataFrame:
@@ -170,7 +185,7 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
     return recs
 
 def step1():
-    print("\n▶ Step-1: 提取 docx 句子 …")
+    print("\n▶ Step-1：提取 Word 句子 / Word 文から文抽出中…")
     all_recs: List[Dict] = []
 
     # 1) 收集所有 .docx 路径
@@ -195,7 +210,7 @@ def step1():
 
     global SENTENCE_RECORDS
     SENTENCE_RECORDS = all_recs
-    print(f"✔ Step-1 完成：共 {len(all_recs)} 条记录（已缓存）")
+    print(f"✔ Step-1 完成 / 完了：共 {len(all_recs)} 条记录 / 件（已缓存 / キャッシュ済み）")
 
 # ----------------—— Step‑2 ——----------------
 
@@ -279,12 +294,12 @@ def extract_companies(text: str,
 
 
 def step2(mysql_url: str):
-    print("\n▶ Step-2: 公司识别 + ban 过滤 …")
+    print("\\n▶ Step-2：公司识别 + ban 过滤 / 企業名認識＋BAN フィルタリング…")
     # 单独导出 canonical 表（engine_tmp）
     engine_tmp = create_engine(mysql_url)            # ← 新建
     df_canon = pd.read_sql("SELECT id, canonical_name FROM company_canonical", engine_tmp)
     df_canon.to_csv(BASE_DIR / "canonical_list.csv", index=False, encoding="utf-8-sig")
-    print(f"   · canonical_list.csv 已写 {len(df_canon)} 行")
+    print(f"  · canonical_list.csv 已写 / 保存 {len(df_canon)} 行 / 行")
     # ---- 连接数据库 ----
     engine = create_engine(mysql_url)
     with engine.begin() as conn:
@@ -295,12 +310,12 @@ def step2(mysql_url: str):
         """))
         alias_map = {alias: canon for alias, canon in rows}
         canon_set = {r[0] for r in conn.execute(text("SELECT canonical_name FROM company_canonical"))}
-    print(f"   · ban_list {len(ban_set)} 条，alias_map {len(alias_map)} 条，canon_set {len(canon_set)} 条")
+    print(f"  · ban_list {len(ban_set)} 条 / 件，alias_map {len(alias_map)} 条 / 件，canon_set {len(canon_set)} 条 / 件")
 
     df = pd.DataFrame(SENTENCE_RECORDS)
     df_hit = df[df["Hit_Count"].astype(int) >= 1].reset_index(drop=True)
     if df_hit.empty:
-        print("❌ Step-1 没提取到任何句子，无法继续 Step-2"); return
+        print("❌ Step-1 未提取到句子，无法继续 Step-2 / Step-1 で文が取得できず、Step-2 を続行できません"); return
 
     company_db = list(canon_set) + list(alias_map.keys())   # canonical + alias
     comp_cols: List[List[str]] = []
@@ -375,7 +390,7 @@ def step2(mysql_url: str):
 
     df_final.to_csv(BASE_DIR / "result.csv",
                     index=False, encoding="utf-8-sig")
-    print(f"   · result.csv 已写，共 {len(df_final)} 条记录")
+    print(f"   · result.csv 已写 / 保存，共 {len(df_final)} 条记录 / 行")
 
        # ---- 生成 mapping_todo.csv ----
     todo_rows: List[Dict] = []
@@ -427,8 +442,20 @@ def step2(mysql_url: str):
 
     todo_df.to_csv(BASE_DIR / "mapping_todo.csv",
                    index=False, encoding="utf-8-sig")
-    print(f"   · mapping_todo.csv 生成 {len(todo_df)} 条记录")
-    print("✔ Step-2 完成，请编辑 mapping_todo.csv 后运行 Step-3")
+    print(f" mapping_todo.csv 生成 / 作成 {len(todo_df)} 条记录 / 行")
+    print("✔ Step-2 完成 / 完了，请编辑 mapping_todo.csv 后运行 Step-3 / mapping_todo.csv を編集してから Step-3 を実行してください\n")
+    print("""
+┌──────────────────────────────────────────────────────────────┐
+│  📄  mapping_todo.csv 简易填写指南 / mapping_todo.csv 簡易入力ガイド │
+├──────────────────────────────────────────────────────────────┤
+│ 1) 空白 → 跳过 / スキップ                                   │
+│ 2) 0  → 加入 ban_list / ban_list に登録                     │
+│ 3) 数字 n → 视为 canonical_id = n / 数字 n は ID として処理 │
+│ 4) 其他文本 → 新或已有标准名 / それ以外の文字列 = 標準名     │
+├──────────────────────────────────────────────────────────────┤
+│ 保存后运行 Step-3 / 保存して Step-3 を実行してください        │
+└──────────────────────────────────────────────────────────────┘
+""")
 
 # ================ Step-3 ==============
 def step3(mysql_url: str):
@@ -444,7 +471,7 @@ def step3(mysql_url: str):
     res_f  = BASE_DIR / "result.csv"
     todo_f = BASE_DIR / "mapping_todo.csv"
     if not (res_f.exists() and todo_f.exists()):
-        print("❌ 缺少 result.csv 或 mapping_todo.csv"); sys.exit(1)
+        print("❌ 缺少 result.csv 或 mapping_todo.csv / result.csv または mapping_todo.csv が見つかりません"); sys.exit(1)
 
     # 读取
     df_res  = pd.read_csv(res_f,  dtype=str).fillna("")
@@ -522,23 +549,23 @@ def step3(mysql_url: str):
     df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
 
-    print(f"✔ Step-3 完成：{len(df_map)} 条映射已处理，result.csv 更新完毕")
+    print(f"✔ Step-3 完成 / 完了：{len(df_map)} 条映射 / 件を処理，result.csv 已更新 / 更新完了")
 # ================ 主入口 ==============
 
 def main():
     mysql_url = ask_mysql_url()
     try:
         create_engine(mysql_url).connect().close()
-        print("✅ 数据库连通")
+        print("✅ 数据库连通 / データベース接続成功")
     except Exception as e:
-        print(f"❌ 数据库连接失败: {e}"); sys.exit(1)
+        print(f"❌ 数据库连接失败 / データベース接続失敗: {e}"); sys.exit(1)
 
     if choose() == "1":
         step1()
         step2(mysql_url)
     else:
         step3(mysql_url)
-    print("\n🎉 流程完成")
+    print("\\n🎉 流程完成 / 全プロセス完了")
 
 
 if __name__ == "__main__":
