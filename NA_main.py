@@ -10,6 +10,9 @@ import os, re, sys, unicodedata, string
 from pathlib import Path
 from typing import List, Dict, Set
 
+from datetime import datetime
+import random
+
 import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
@@ -455,10 +458,17 @@ def step2(mysql_url: str):
 │ 4) 其他文本 → 新或已有标准名 / それ以外の文字列 = 標準名     │
 ├──────────────────────────────────────────────────────────────┤
 │ 保存后运行 Step-3 / 保存して Step-3 を実行してください        │
+│      • 输入 2  → 运行 Step-3（写入数据库）                    │
+│      • 输入 e  → 退出程序                                     │
+│                                                              │
+│  ※ 英語ガイド                                                │
+│      • 2 を入力 → Step-3 実行                                 │
+│      • e を入力 → 終了       
 └──────────────────────────────────────────────────────────────┘
 """)
 
 # ================ Step-3 ==============
+
 def step3(mysql_url: str):
     """
     Step-3 标准化 + 写库（与旧 NA_step3_standardize.py 等价）
@@ -469,6 +479,8 @@ def step3(mysql_url: str):
         • 否则插入/补全 canonical & alias, Std_Result = 'Added'
     同时把最新映射应用回 result.csv
     """
+    # 本轮批次号：YYYYMMDD + 8位随机数
+    process_id = datetime.now().strftime("%Y%m%d") + f"{random.randint(0, 99999999):08d}"
     res_f  = BASE_DIR / "result.csv"
     todo_f = BASE_DIR / "mapping_todo.csv"
     if not (res_f.exists() and todo_f.exists()):
@@ -477,12 +489,17 @@ def step3(mysql_url: str):
     # 读取
     df_res  = pd.read_csv(res_f,  dtype=str).fillna("")
     df_map  = pd.read_csv(todo_f, dtype=str).fillna("")
+    
+    if "Process_ID" not in df_map.columns:
+        df_map["Process_ID"] = ""
 
     engine = create_engine(mysql_url)
     with engine.begin() as conn:
 
         # 1) 拉取三表到内存
-        ban_set   = {r[0] for r in conn.execute(text("SELECT alias FROM ban_list"))}
+        ban_set = {r[0] for r in conn.execute(text(
+            "SELECT alias FROM ban_list"
+        ))}
         canon_map = {r[0]: r[1] for r in conn.execute(text("SELECT id, canonical_name FROM company_canonical"))}  # id→name
         canon_rev = {v: k for k, v in canon_map.items()}  # name→id
         alias_map = {r[0]: r[1] for r in conn.execute(text("""
@@ -495,18 +512,23 @@ def step3(mysql_url: str):
         for idx, row in df_map.iterrows():
             alias_raw = row["Alias"].strip()
             canon_input = row["Canonical_Name"].strip()
+            
+            did_write = False
 
             if not canon_input:                       # —— 空白
                 df_map.at[idx, "Std_Result"] = "No input"
                 continue
 
-            # === ① Ban（输入 0） ===
+           # === ① Ban（输入 0） ===
             if canon_input == "0":
-                if alias_raw not in ban_set:
+                if alias_raw not in ban_set:          # 只在第一次才写库＋打批次号
                     conn.execute(text(
-                        "INSERT IGNORE INTO ban_list(alias) VALUES (:a)"
-                    ), {"a": alias_raw})
-                    ban_set.add(alias_raw)
+                        "INSERT INTO ban_list(alias, process_id) "
+                        "VALUES (:a, :pid)"
+                    ), {"a": alias_raw, "pid": process_id})
+                    ban_set.add(alias_raw)            # 别忘了同步到本地集合
+                    df_map.at[idx, "Process_ID"] = f"'{process_id}"
+                # 已存在就什么都不更改批次号
                 df_map.at[idx, "Std_Result"] = "Banned"
                 continue
 
@@ -523,11 +545,13 @@ def step3(mysql_url: str):
                 # 若文本不存在于 canonical 表 → 新建
                 if canon_name not in canon_rev:
                     res = conn.execute(text(
-                        "INSERT INTO company_canonical(canonical_name) VALUES (:c)"
-                    ), {"c": canon_name})
+                        "INSERT INTO company_canonical(canonical_name, process_id) VALUES (:c, :pid)"
+                    ), {"c": canon_name, "pid": process_id})
+                    did_write = True
+                    
                     canon_id = res.lastrowid
                     canon_rev[canon_name] = canon_id
-                    canon_map[canon_id] = canon_name
+                    df_map.at[idx, "Process_ID"] = f"'{process_id}"
                 else:
                     canon_id = canon_rev[canon_name]
 
@@ -537,20 +561,25 @@ def step3(mysql_url: str):
                 continue
 
             conn.execute(text(
-                "INSERT IGNORE INTO company_alias(alias, canonical_id) VALUES (:a, :cid)"
-            ), {"a": alias_raw, "cid": canon_id})
+                "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) VALUES (:a, :cid, :pid)"
+            ), {"a": alias_raw, "cid": canon_id, "pid": process_id})
+            did_write = True
             alias_map[alias_raw] = canon_name
             df_map.at[idx, "Std_Result"] = "Added"
+            if did_write:
+                df_map.at[idx, "Process_ID"]  = f"'{process_id}"
 
     # 3) 应用最新映射到 result.csv
     for col in [c for c in df_res.columns if c.startswith("company_")]:
         df_res[col] = df_res[col].apply(lambda x: alias_map.get(x, x))
 
     df_res = dedup_company_cols(df_res)
+    # df_map["Process_ID"] = "'" + process_id   # ← 前面加单引号，Excel 会当文本
     df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
 
     print(f"✔ Step-3 完成 / 完了：{len(df_map)} 条映射 / 件を処理，result.csv 已更新 / 更新完了")
+    print(f"📌 本批次/今回の Process ID : {process_id}")
 # ================ 主入口 ==============
 
 def main():
@@ -561,12 +590,26 @@ def main():
     except Exception as e:
         print(f"❌ 数据库连接失败 / データベース接続失敗: {e}"); sys.exit(1)
 
-    if choose() == "1":
+    choice = choose()
+
+    if choice == "1":
         step1()
         step2(mysql_url)
-    else:
+
+        # —— 新增：跑完 Step-2 后等待用户指令 ——
+        while True:
+            nxt = input("👉 输入 2 继续 Step-3，或输入 e 退出 / 2 でStep-3を続行, e で終了: ").strip().lower()
+            if nxt == "2":
+                step3(mysql_url)
+                break
+            elif nxt == "e":
+                print("已退出 / 終了しました。")
+                return
+            else:
+                print("无效输入 / 無効な入力です，请重新输入 / もう一度入力してください。")
+
+    else:   # choice == "2"
         step3(mysql_url)
-    print("\\n🎉 流程完成 / 全プロセス完了")
 
 
 if __name__ == "__main__":
