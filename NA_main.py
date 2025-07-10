@@ -314,6 +314,11 @@ def step2(mysql_url: str):
         """))
         alias_map = {alias: canon for alias, canon in rows}
         canon_set = {r[0] for r in conn.execute(text("SELECT canonical_name FROM company_canonical"))}
+        # ↓↓↓ 新增：名字→ID 的字典，用于 Advice 对应的 ID
+        rows2 = conn.execute(text(
+            "SELECT id, canonical_name FROM company_canonical"
+        ))
+        canon_name2id = {name: cid for cid, name in rows2}      # ← 新增
     print(f"  · ban_list {len(ban_set)} 条 / 件，alias_map {len(alias_map)} 条 / 件，canon_set {len(canon_set)} 条 / 件")
 
     df = pd.DataFrame(SENTENCE_RECORDS)
@@ -397,25 +402,43 @@ def step2(mysql_url: str):
     print(f"   · result.csv 已写 / 保存，共 {len(df_final)} 条记录 / 行")
 
        # ---- 生成 mapping_todo.csv ----
+        # ---- 生成 mapping_todo.csv ----
+    # 1) 为了能查到 canonical 的 id，先做一个 name→id 的字典
+    canon_name2id = {row.canonical_name: row.id for row in df_canon.itertuples()}
+
     todo_rows: List[Dict] = []
     for _, row in df_final.iterrows():
-        for alias in (row[c].strip()
-                    for c in df_final.columns if c.startswith("company_")
-                    if row[c].strip()):
+        for alias in (
+            row[c].strip()
+            for c in df_final.columns if c.startswith("company_")
+            if row[c].strip()
+        ):
+            # 已在三张表里出现过的 alias 不再进入 todo
             if alias in ban_set or alias in alias_map or alias in canon_set:
                 continue
-                        # —— 与 canonical 表做模糊匹配，给用户参考 ——
-            advice, score, _ = process.extractOne(
-                alias,
-                list(canon_set),
-                scorer=fuzz.WRatio) if canon_set else ("", 0, None)
-            advice = advice if score >= 85 else ""
 
+            # ---------- 计算 Advice 和 Adviced_ID ----------
+            if canon_set:
+                # 必须传入 query + choices 两个参数
+                advice, score, _ = process.extractOne(
+                    alias,                    # query
+                    list(canon_set),          # choices
+                    scorer=fuzz.WRatio
+                )
+                if score < 85:               # 相似度阈值
+                    advice = ""
+            else:
+                advice = ""
+
+            adviced_id = canon_name2id.get(advice, "")
+
+            # ---------- 写入 todo_rows ----------
             todo_rows.append({
                 "Sentence":       row["Sentence"],
                 "Alias":          alias,
                 "Bad_Rate":       calc_bad_rate(alias),
-                "Advice":         advice,      # ← 新列
+                "Advice":         advice,
+                "Adviced_ID":     adviced_id,
                 "Canonical_Name": "",
                 "Std_Result":     ""
             })
@@ -437,9 +460,11 @@ def step2(mysql_url: str):
                .drop(columns="__grp"))
 
     # ③ 固定列顺序（可选）
-    todo_df = todo_df[["Sentence", "Alias", "Bad_Rate",
-                   "Advice",          # ← 新列位置
-                   "Canonical_Name", "Std_Result"]]
+    todo_df = todo_df[[
+        "Sentence", "Alias", "Bad_Rate",
+        "Advice", "Adviced_ID",          # ← 新增
+        "Canonical_Name", "Std_Result"
+    ]]
 
     # ④ 显示成百分比后写文件（排序已完成，安全）
     todo_df["Bad_Rate"] = todo_df["Bad_Rate"].astype(int).astype(str) + "%"
