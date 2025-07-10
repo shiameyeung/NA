@@ -1,3 +1,4 @@
+# 原作者：杨天乐@关西大学 / Author: Shiame Yeung@Kansai University / 作成者：楊　天楽@関西大学
 #!/usr/bin/env python3
 # coding: utf-8
 """
