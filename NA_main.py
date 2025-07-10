@@ -532,13 +532,19 @@ def step3(mysql_url: str):
             FROM company_alias a
             JOIN company_canonical c ON a.canonical_id = c.id
         """))}
+        # ===== 大小写无关镜像 =====
+        ban_lower       = {b.lower() for b in ban_set}                     # ban  → set
+        alias_lower_map = {a.lower(): canon for a, canon in alias_map.items()}  # alias→canonical
+        canon_lower2id  = {name.lower(): cid for cid, name in canon_map.items()} # canonical→id
+        # =========================================
 
         # 2) 逐行处理 mapping
         for idx, row in df_map.iterrows():
-            alias_raw = row["Alias"].strip()
-            canon_input = row["Canonical_Name"].strip()
-            
-            did_write = False
+            alias_raw   = row["Alias"].strip()
+            alias_raw_l = alias_raw.lower()        # ← 小写版
+
+            canon_input   = row["Canonical_Name"].strip()
+            canon_input_l = canon_input.lower()    # ← 小写版
 
             if not canon_input:                       # —— 空白
                 df_map.at[idx, "Std_Result"] = "No input"
@@ -546,7 +552,7 @@ def step3(mysql_url: str):
 
            # === ① Ban（输入 0） ===
             if canon_input == "0":
-                if alias_raw not in ban_set:          # 只在第一次才写库＋打批次号
+                if alias_raw_l not in ban_lower:          # 只在第一次才写库＋打批次号
                     conn.execute(text(
                         "INSERT INTO ban_list(alias, process_id) "
                         "VALUES (:a, :pid)"
@@ -566,33 +572,39 @@ def step3(mysql_url: str):
                 canon_name = canon_map[cid]           # ← id → name
                 canon_id   = cid
             else:
-                canon_name = canon_input              # 用户直接写的文本
-                # 若文本不存在于 canonical 表 → 新建
-                if canon_name not in canon_rev:
+                canon_name = canon_input
+                if canon_input_l not in canon_lower2id:          # ← 用小写判断是否已存在
                     res = conn.execute(text(
-                        "INSERT INTO company_canonical(canonical_name, process_id) VALUES (:c, :pid)"
+                        "INSERT INTO company_canonical(canonical_name, process_id) "
+                        "VALUES (:c, :pid)"
                     ), {"c": canon_name, "pid": process_id})
-                    did_write = True
-                    
-                    canon_id = res.lastrowid
-                    canon_rev[canon_name] = canon_id
-                    df_map.at[idx, "Process_ID"] = f"'{process_id}"
-                else:
-                    canon_id = canon_rev[canon_name]
 
-            # === ③ 写 alias（如已存在则跳过） ===
-            if alias_raw in alias_map:
+                    canon_id = res.lastrowid
+                    # —— 同步三张镜像/字典 —— 
+                    canon_map[canon_id]          = canon_name
+                    canon_lower2id[canon_input_l] = canon_id
+
+                    df_map.at[idx, "Process_ID"] = f"'{process_id}" 
+                else:
+                    canon_id   = canon_lower2id[canon_input_l]
+                    canon_name = canon_map[canon_id]
+
+            # === ③ 写 alias（已存在：大小写也要忽略） ===
+            if alias_raw_l in alias_lower_map or alias_raw_l in canon_lower2id:   # ✅ 新增后半句
                 df_map.at[idx, "Std_Result"] = "Exists"
                 continue
 
             conn.execute(text(
                 "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) VALUES (:a, :cid, :pid)"
             ), {"a": alias_raw, "cid": canon_id, "pid": process_id})
-            did_write = True
-            alias_map[alias_raw] = canon_name
+
+            # —— 成功后同步两张镜像 ——  
+            alias_map[alias_raw]         = canon_name        # 原字典（保留大小写）
+            alias_lower_map[alias_raw_l] = canon_name        # 小写镜像，供之后判断
+
+            # —— 标记结果 & 批次号 ——  
             df_map.at[idx, "Std_Result"] = "Added"
-            if did_write:
-                df_map.at[idx, "Process_ID"]  = f"'{process_id}"
+            df_map.at[idx, "Process_ID"] = f"'{process_id}"
 
     # 3) 应用最新映射到 result.csv
     for col in [c for c in df_res.columns if c.startswith("company_")]:
