@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # 公共检查函数
 check_success() {
@@ -20,8 +21,18 @@ echo "✅ Python3 安装完成，版本信息：/ Python3 のインストール�
 python3 --version
 pip3 --version
 
-echo "🚀 安装 Python 第三方库：pandas tqdm python-docx spacy fuzzywuzzy ... / Python ライブラリをインストールします：pandas tqdm python-docx spacy fuzzywuzzy ..."
-pip3 install --upgrade pandas tqdm python-docx spacy fuzzywuzzy
+echo "🚀 安装 Python 第三方库 ... / Python ライブラリをインストールします ..."
+pip3 install --upgrade \
+  pandas \
+  tqdm \
+  python-docx \
+  spacy \
+  rapidfuzz \
+  sqlalchemy \
+  pymysql \
+  numpy \
+  torch \
+  sentence-transformers
 check_success
 
 echo "✅ 第三方库安装完成 / ライブラリのインストールが完了しました"
@@ -33,5 +44,18 @@ check_success
 echo "🎉 环境安装全部完成！/ 環境のインストールが全て完了しました！"
 
 echo "🔍 验证安装：导入模块测试中 ... / インストール確認：モジュールのインポートをテスト中 ..."
-python3 -c "import pandas; import tqdm; import docx; import spacy; import fuzzywuzzy; print('✅ 所有模块导入成功！ / 全てのモジュールのインポートに成功しました！')"
+python3 << 'EOF'
+import pandas;     print("pandas", pandas.__version__)
+import tqdm;       print("tqdm", tqdm.__version__)
+import docx;       print("python-docx", docx.__version__)
+import spacy;      print("spacy", spacy.__version__)
+import rapidfuzz;  print("rapidfuzz", rapidfuzz.__version__)
+import sqlalchemy; print("sqlalchemy", sqlalchemy.__version__)
+import pymysql;    print("pymysql OK")
+import numpy;      print("numpy", numpy.__version__)
+import torch;      print("torch", torch.__version__)
+import sentence_transformers
+print("sentence-transformers", sentence_transformers.__version__)
+print("✅ 所有模块导入成功！ / 全てのモジュールのインポートに成功しました！")
+EOF
 check_success
