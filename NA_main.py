@@ -12,6 +12,8 @@ def ensure_env():
     try:
         # 检测几个最常用的包
         import pandas, tqdm, sqlalchemy, rapidfuzz, docx, spacy
+        import requests, numpy, torch
+        from sentence_transformers import SentenceTransformer
     except ImportError:
         print("❌ 发现缺少依赖，正在自动运行 NA_env.py 进行安装…\n")
         # 如果工作目录里没有 NA_env.py，就先下载
