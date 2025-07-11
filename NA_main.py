@@ -6,6 +6,34 @@ na_pipeline.py  ——  单文件版（Step‑1 对齐 + 扩展公司识别）
 2025‑07‑08  rev‑C
 """
 
+import sys, subprocess, os
+
+def ensure_env():
+    try:
+        # 检测几个最常用的包
+        import pandas, tqdm, sqlalchemy, rapidfuzz, docx, spacy
+    except ImportError:
+        print("❌ 发现缺少依赖，正在自动运行 NA_env.py 进行安装…\n")
+        # 如果工作目录里没有 NA_env.py，就先下载
+        if not os.path.exists("NA_env.py"):
+            print("🔄 自动下载 NA_env.py …")
+            subprocess.check_call([
+                sys.executable, "-m", "curl",
+                "-fsSL",
+                "https://raw.githubusercontent.com/shiameyeung/NA/main/NA_env.py",
+                "-o", "NA_env.py"
+            ])
+        # 调用 NA_env.py 执行安装
+        ret = subprocess.call([sys.executable, "NA_env.py"])
+        if ret != 0:
+            print("❌ 运行 NA_env.py 失败，请手动执行：python NA_env.py")
+            sys.exit(1)
+        print("\n✅ 环境安装完成，请重新运行 `python NA_main.py`。")
+        sys.exit(0)
+
+# —————— 在脚本一启动就先确保环境 ——————
+ensure_env()
+
 import os, re, sys, unicodedata, string
 from pathlib import Path
 from typing import List, Dict, Set
