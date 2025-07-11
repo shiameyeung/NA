@@ -17,11 +17,18 @@ import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
 from rapidfuzz import fuzz, process
+import numpy as np
+import torch
+from sentence_transformers import SentenceTransformer
 
 try:
     from docx import Document
     import spacy
     nlp = spacy.load("en_core_web_sm", disable=["parser", "lemmatizer"])
+    model_emb = SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        device="cuda" if torch.cuda.is_available() else "cpu"
+    )
 except Exception:
     print("❌ 缺少依赖：pip install python-docx spacy && python -m spacy download en_core_web_sm"); sys.exit(1)
 
@@ -48,6 +55,49 @@ TIME_QTY    = re.compile(
     r'\b(year|month|week|day|decade|centur(?:y|ies)|quarter|q[1-4]|'
     r'ago|last|next|few|couple|several|dozen|half|around|approximately)s?\b',
     re.I)
+
+# ── 金融报表 / 业绩公告类 ─────────────────────────────
+FIN_REPORT = re.compile(
+    r'\b(results?|earnings?|revenues?|turnover|profit(?:s)?|loss(?:es)?|guidance|forecast|'
+    r'financial statements?|balance sheets?|cash flows?|income statements?)\b',
+    re.I)
+
+# ── 分季 / 分半期 / 分年描述 ─────────────────────────
+ORDINAL_PERIOD = re.compile(
+    r'\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b.*?\b(quarter|half|year)\b',
+    re.I)
+
+# ── 典型“公告/报告/更新”触发词（多见于 ban_list） ─────────────
+ANNOUNCE_VERB = re.compile(
+    r'\b(reports?|announces?|updates?|revises?|publishes?|files?|issues?|unveils?)\b',
+    re.I)
+# ===== 在常量区（TIME_QTY 之后）新增几条通用 regex =====
+GENERIC_NOUN = re.compile(
+    r'\b(services?|solutions?|systems?|platforms?|programs?|projects?|'
+    r'statements?|reports?|targets?|technologies?|operations?|activities|'
+    r'strategies?|plans?)\b', re.I)
+
+MONTH_NAME = re.compile(
+    r'\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|'
+    r'jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|'
+    r'dec(?:ember)?)\b', re.I)
+
+NEW_GENERIC_TIME = re.compile(
+    r'\b(?:end|beginning|middle|start|first|second|third|fourth|prior|previous|'
+    r'current|next)\s+(?:of\s+)?(?:the\s+)?(?:year|quarter|month|week)s?\b',
+    re.I)
+
+#  纯大写 2–4 位缩写（PBM / ESG …）
+ALLCAP_SHORT = re.compile(r'^[A-Z]{2,4}$')
+
+#  %、百万/十亿、美元符号之类
+NUMERIC = re.compile(r'[%\$]\s*\d|\d[\d,\.]+\s*(?:million|billion|thousand)', re.I)
+
+
+ALL_UPPER  = re.compile(r'^[A-Z]{2,}$')
+ALL_LOWER  = re.compile(r'^[a-z]{4,}$')
+
+SHORT_TOKEN = re.compile(r'^[A-Za-z]{1,4}$')
 ART_LOWER   = re.compile(r'^\s*(a|an|about|approximately|the|this|that|those)\s+[a-z]')
 GENERIC_END = re.compile(
     r'\b(plan|plans?|programs?|systems?|platforms?|services?|solutions?|operations?|'
@@ -57,18 +107,50 @@ def _lower_ratio(text: str) -> float:
     w = text.split()
     return sum(t[0].islower() for t in w) / len(w) if w else 0
 
-def calc_bad_rate(text: str) -> int:
-    """0–100：越高越可能是 bad"""
-    if ORG_SUFFIX.search(text):
+def calc_Bad_Score(text: str) -> int:
+    """
+    越高越可能是 bad（需要人工判斷或直接 ban）
+    调整点：
+      ① 先按“好特征”清零——例如合法公司后缀。
+    """
+    # === ① 明显好特征：直接判 0 ===
+    if ORG_SUFFIX.search(text):           # Inc., Ltd. 等
         return 0
+
     score = 0
-    if TIME_QTY.search(text):              score += 40
-    if ART_LOWER.match(text):              score += 25
-    if ' of the ' in text.lower():         score += 20
-    if GENERIC_END.search(text):           score += 15
-    if len(text.split()) <= 2:             score += 20
-    if _lower_ratio(text) > 0.30:          score += 20
-    return min(score, 100)
+
+    # === ② 时间 & 数量类 ===
+    if TIME_QTY.search(text) or MONTH_NAME.search(text):
+        score += 40                       # 季度/月份/年，几乎一定是假公司
+
+    # === ③ 句式 & 组合词 ===
+    if ' of the ' in text.lower():        # “…of the…” 典型报告语
+        score += 20
+    if GENERIC_END.search(text):
+        score += 15
+    if GENERIC_NOUN.search(text):         # 新增：泛称名词
+        score += 15
+
+    # === ④ 大小写 & 长度 ===
+    words = text.split()
+    if len(words) <= 2:
+        score += 20
+    if _lower_ratio(text) > 0.30:
+        score += 15                       # 原来是 20，稍微放宽
+    if ALL_UPPER.match(text) or ALL_LOWER.match(text):
+        score += 15
+    if any(SHORT_TOKEN.match(w) for w in words):
+        score += 10                       # 像“LLC”“LP”这种很短的 token
+        
+    if FIN_REPORT.search(text):        score += 30        
+    if ORDINAL_PERIOD.search(text):    score += 25        
+    if ANNOUNCE_VERB.search(text):     score += 20    
+    if NEW_GENERIC_TIME.search(text):      score += 40  # time 相关更狠
+    if ALLCAP_SHORT.match(text):           score += 50  # 纯缩写
+    if NUMERIC.search(text):               score += 25  # 含数值/金额    
+
+
+    return score
 # ---------------- 全局变量 ----------------
 BASE_DIR = Path(__file__).resolve().parent
 MAX_COMP_COLS = 50
@@ -314,6 +396,9 @@ def step2(mysql_url: str):
         """))
         alias_map = {alias: canon for alias, canon in rows}
         canon_set = {r[0] for r in conn.execute(text("SELECT canonical_name FROM company_canonical"))}
+        # —— 预编码全部 canonical，一次搞定 ——
+        canon_names = list(canon_set)
+        canon_vecs  = model_emb.encode(canon_names, batch_size=64, normalize_embeddings=True)
         # ↓↓↓ 新增：名字→ID 的字典，用于 Advice 对应的 ID
         rows2 = conn.execute(text(
             "SELECT id, canonical_name FROM company_canonical"
@@ -416,27 +501,45 @@ def step2(mysql_url: str):
             # 已在三张表里出现过的 alias 不再进入 todo
             if alias in ban_set or alias in alias_map or alias in canon_set:
                 continue
-
-            # ---------- 计算 Advice 和 Adviced_ID ----------
-            if canon_set:
-                # 必须传入 query + choices 两个参数
-                advice, score, _ = process.extractOne(
-                    alias,                    # query
-                    list(canon_set),          # choices
-                    scorer=fuzz.WRatio
-                )
-                if score < 85:               # 相似度阈值
-                    advice = ""
+    # ---------- ① 先看首词能不能直接命中 canonical ----------
+            first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0]
+            first_l   = first_tok.lower()
+            if first_l in canon_lower:                           # 数据库里就有
+                advice     = canon_lower2orig[first_l]           # ← 保留大小写原名
+                adviced_id = canon_name2id.get(advice, "")
             else:
-                advice = ""
+                # ---------- 计算 Advice & Adviced_ID（Sentence-Transformer 版） ----------
+            # ② 再尝试 n-gram 完全匹配：从最长子串到最短子串
+                advice = adviced_id = ""
+                words = alias.split()
+                L = len(words)
+                for size in range(L, 0, -1):
+                    for i in range(0, L - size + 1):
+                        phrase = " ".join(words[i:i+size])
+                        key = phrase.lower()
+                        if key in canon_lower:
+                            advice     = canon_lower2orig[key]
+                            adviced_id = canon_name2id[advice]
+                            break
+                    if advice:
+                        break
+            # ③ 如果还没有，再用 Sentence-Transformer 做模糊匹配
+            if not advice and canon_vecs.size > 0:
+                alias_vec   = model_emb.encode([alias], normalize_embeddings=True)[0]
+                sims        = np.dot(canon_vecs, alias_vec)
+                best_idx    = int(np.argmax(sims))
+                best_score  = float(sims[best_idx])
+                if best_score >= 0.80:
+                    advice      = canon_names[best_idx]
+                    adviced_id  = canon_name2id.get(advice, "")
+                else:
+                    advice, adviced_id = "", ""
 
-            adviced_id = canon_name2id.get(advice, "")
-
-            # ---------- 写入 todo_rows ----------
+            # ---------- 统一把这条写进去 ----------
             todo_rows.append({
                 "Sentence":       row["Sentence"],
                 "Alias":          alias,
-                "Bad_Rate":       calc_bad_rate(alias),
+                "Bad_Score":       calc_Bad_Score(alias),
                 "Advice":         advice,
                 "Adviced_ID":     adviced_id,
                 "Canonical_Name": "",
@@ -451,9 +554,9 @@ def step2(mysql_url: str):
             .drop_duplicates("Alias_lower")
             .drop(columns="Alias_lower"))
 
-    # ② 分组排序：0=High(≥60) → 1=Mid(30-59) → 2=Low(<30)
-    todo_df["__grp"] = todo_df["Bad_Rate"].apply(
-        lambda x: 0 if x >= 60 else (1 if x >= 30 else 2)
+    # ② 分组排序：0=High(≥50) → 1=Mid(10-49) → 2=Low(<10)
+    todo_df["__grp"] = todo_df["Bad_Score"].apply(
+        lambda x: 0 if x >= 50 else (1 if x >= 10 else 2)
     )
     todo_df = (todo_df
                .sort_values(["__grp", "Sentence"], ascending=[True, True])
@@ -461,14 +564,16 @@ def step2(mysql_url: str):
 
     # ③ 固定列顺序（可选）
     todo_df = todo_df[[
-        "Sentence", "Alias", "Bad_Rate",
+        "Sentence", "Alias", "Bad_Score",
         "Advice", "Adviced_ID",          # ← 新增
         "Canonical_Name", "Std_Result"
     ]]
 
     # ④ 显示成百分比后写文件（排序已完成，安全）
-    todo_df["Bad_Rate"] = todo_df["Bad_Rate"].astype(int).astype(str) + "%"
-
+    todo_df["Bad_Score"] = todo_df["Bad_Score"].astype(int).astype(str)
+    todo_df['Sentence'] = todo_df['Sentence'].apply(
+    lambda s: "'" + s if isinstance(s, str) and s.startswith('=') else s
+    )
     todo_df.to_csv(BASE_DIR / "mapping_todo.csv",
                    index=False, encoding="utf-8-sig")
     print(f" mapping_todo.csv 生成 / 作成 {len(todo_df)} 条记录 / 行")
