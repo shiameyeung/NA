@@ -6,6 +6,33 @@ na_pipeline.py  ——  单文件版（Step‑1 对齐 + 扩展公司识别）
 2025‑07‑08  rev‑C
 """
 
+def cute_box(cn: str, jp: str, icon: str = "🌸") -> None:
+    """
+    多行也能对齐的可爱中/日双语框
+    cn: 中文提示（可以多行，用 '\\n' 分隔）
+    jp: 日文提示（可以多行）
+    icon: 每行开头和结尾的小表情
+    """
+    # 把中/日各自的多行拆开，拼成统一列表
+    lines = []
+    for segment in (cn, jp):
+        for ln in segment.split("\n"):
+            ln = ln.strip()
+            # 用 "icon + 空格 + 文本 + 空格 + icon" 构造每一行
+            lines.append(f"{icon} {ln} {icon}")
+
+    # 找到最长那行，做为框宽
+    width = max(len(ln) for ln in lines)
+    border = "─" * width
+
+    # 打印上边框
+    print(f"╭{border}╮")
+    # 打印每一行，右侧填充空格到 width
+    for ln in lines:
+        print("│" + ln.ljust(width) + "│")
+    # 打印下边框
+    print(f"╰{border}╯")
+
 import sys, subprocess, os
 
 def ensure_env():
@@ -15,10 +42,18 @@ def ensure_env():
         import requests, numpy, torch
         from sentence_transformers import SentenceTransformer
     except ImportError:
-        print("❌ 发现缺少依赖，正在自动运行 NA_env.py 进行安装…\n")
+        cute_box(
+            "发现缺少依赖，正在自动运行 NA_env.py 安装环境…",
+            "依存関係が足りないよ！NA_env.py を実行中…",
+            "🐰"
+        )
         # 如果工作目录里没有 NA_env.py，就先下载
         if not os.path.exists("NA_env.py"):
-            print("🔄 自动下载 NA_env.py …")
+            cute_box(
+                "自动下载 NA_env.py 中…",
+                "NA_env.py をダウンロード中…",
+                "🌟"
+            )
             subprocess.check_call([
                 sys.executable, "-m", "curl",
                 "-fsSL",
@@ -28,9 +63,17 @@ def ensure_env():
         # 调用 NA_env.py 执行安装
         ret = subprocess.call([sys.executable, "NA_env.py"])
         if ret != 0:
-            print("❌ 运行 NA_env.py 失败，请手动执行：python NA_env.py")
+            cute_box(
+                "运行失败，请手动执行：python NA_env.py",
+                "実行に失敗しました。手動で python NA_env.py を実行してね",
+                "⚠️"
+            )
             sys.exit(1)
-        print("\n✅ 环境安装完成，请重新运行 `python NA_main.py`。")
+        cute_box(
+            "环境安装完成，请重新运行 NA_main.py！",
+            "環境のインストール完了！もう一度 NA_main.py を実行してね",
+            "🎉"
+        )
         sys.exit(0)
 
 # —————— 在脚本一启动就先确保环境 ——————
@@ -60,7 +103,12 @@ try:
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
 except Exception:
-    print("❌ 缺少依赖：pip install python-docx spacy && python -m spacy download en_core_web_sm"); sys.exit(1)
+    cute_box(
+      "缺少依赖：请运行 pip install python-docx spacy",
+      "依存関係が足りません：pip install python-docx spacy を実行してね",
+      "⚠️"
+    )
+    sys.exit(1)
 
 # ---------------- 常量 ----------------
 STOPWORDS = {"the","and","for","with","from","that","this","have","will","are","you","not","but","all","any","one","our","their"}
@@ -202,22 +250,20 @@ def ask_mysql_url() -> str:
 
 def choose() -> str:
     # ── 1. 选项框 ───────────────────────────────────────────
-    print(r"""
-┌──────────────────────────────────────────────┐
-│  ①  初次运行（Step-1 ➜ Step-2） / 初回実行      │
-│  ②  已有 mapping（Step-3） / mapping 適用のみ  │
-│  作者：楊　天楽＠関西大学　伊佐田研究室             │
-└──────────────────────────────────────────────┘
-""")
+    cute_box(
+        "① 初次运行（Step-1 ➜ Step-2）\n② 已有映射（Step-3）\n作者：楊天楽@関西大学 伊佐田研究室",
+        "① 初回実行（Step-1 ➜ Step-2）\n② mapping適用のみ（Step-3）\n作成者：楊天楽@関西大学 伊佐田研究室",
+        "📋"
+    )
     c = input("请输入 1 或 2 / 1 か 2 を入力してください: ").strip()
 
     # ── 2. 校验 ───────────────────────────────────────────
     if c not in {"1", "2"}:
-        print(r"""
-┌──────────────────────────┐
-│  ❌ 无效选择 / 無効な選択です  │
-└──────────────────────────┘
-""")
+        cute_box(
+        "无效选择，请输入 1 或 2！",
+        "無効な選択です。1 か 2 を入力してね！",
+        "🔄"
+        )
         sys.exit(1)
 
     return c
@@ -301,7 +347,11 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
     return recs
 
 def step1():
-    print("\n▶ Step-1：提取 Word 句子 / Word 文から文抽出中…")
+    cute_box(
+        "Step-1：提取 Word 句子 中…",
+        "Step-1：文抽出中…",
+        "📄"
+    )
     all_recs: List[Dict] = []
 
     # 1) 收集所有 .docx 路径
@@ -326,7 +376,11 @@ def step1():
 
     global SENTENCE_RECORDS
     SENTENCE_RECORDS = all_recs
-    print(f"✔ Step-1 完成 / 完了：共 {len(all_recs)} 条记录 / 件（已缓存 / キャッシュ済み）")
+    cute_box(
+        f"Step-1 完成，共 {len(all_recs)} 条记录",
+        f"Step-1 完了しました：全{len(all_recs)}件",
+        "✅"
+    )
 
 # ----------------—— Step‑2 ——----------------
 
@@ -410,12 +464,20 @@ def extract_companies(text: str,
 
 
 def step2(mysql_url: str):
-    print("\\n▶ Step-2：公司识别 + ban 过滤 / 企業名認識＋BAN フィルタリング…")
+    cute_box(
+        "Step-2：公司识别＋BAN 过滤 中…",
+        "Step-2：企業名認識＋BAN フィルタ中…",
+        "🏷️"
+    )
     # 单独导出 canonical 表（engine_tmp）
     engine_tmp = create_engine(mysql_url)            # ← 新建
     df_canon = pd.read_sql("SELECT id, canonical_name FROM company_canonical", engine_tmp)
     df_canon.to_csv(BASE_DIR / "canonical_list.csv", index=False, encoding="utf-8-sig")
-    print(f"  · canonical_list.csv 已写 / 保存 {len(df_canon)} 行 / 行")
+    cute_box(
+        f"已写出 canonical_list.csv，共 {len(df_canon)} 行",
+        f"canonical_list.csv を保存しました：{len(df_canon)} 行",
+        "🗂️"
+    )
     # ---- 连接数据库 ----
     engine = create_engine(mysql_url)
     with engine.begin() as conn:
@@ -434,12 +496,22 @@ def step2(mysql_url: str):
             "SELECT id, canonical_name FROM company_canonical"
         ))
         canon_name2id = {name: cid for cid, name in rows2}      # ← 新增
-    print(f"  · ban_list {len(ban_set)} 条 / 件，alias_map {len(alias_map)} 条 / 件，canon_set {len(canon_set)} 条 / 件")
+    
+    cute_box(
+    f"ban_list={len(ban_set)}，alias_map={len(alias_map)}，canon_set={len(canon_set)}",
+    f"ban_list：{len(ban_set)}件／alias_map：{len(alias_map)}件／canon_set：{len(canon_set)}件",
+    "🔍"
+    )
 
     df = pd.DataFrame(SENTENCE_RECORDS)
     df_hit = df[df["Hit_Count"].astype(int) >= 1].reset_index(drop=True)
     if df_hit.empty:
-        print("❌ Step-1 未提取到句子，无法继续 Step-2 / Step-1 で文が取得できず、Step-2 を続行できません"); return
+        cute_box(
+        "Step-1 没提取到任何句子，请先跑 Step-1！",
+        "Step-1 で文が取得できませんでした。まず Step-1 を実行してね",
+        "🚫"
+        )
+        return
 
     company_db = list(canon_set) + list(alias_map.keys())   # canonical + alias
     comp_cols: List[List[str]] = []
@@ -514,7 +586,11 @@ def step2(mysql_url: str):
 
     df_final.to_csv(BASE_DIR / "result.csv",
                     index=False, encoding="utf-8-sig")
-    print(f"   · result.csv 已写 / 保存，共 {len(df_final)} 条记录 / 行")
+    cute_box(
+        f"已生成 result.csv，共 {len(df_final)} 条记录",
+        f"result.csv を生成しました：全{len(df_final)}件",
+        "📑"
+    )
 
        # ---- 生成 mapping_todo.csv ----
         # ---- 生成 mapping_todo.csv ----
@@ -606,26 +682,29 @@ def step2(mysql_url: str):
     )
     todo_df.to_csv(BASE_DIR / "mapping_todo.csv",
                    index=False, encoding="utf-8-sig")
-    print(f" mapping_todo.csv 生成 / 作成 {len(todo_df)} 条记录 / 行")
-    print("✔ Step-2 完成 / 完了，请编辑 mapping_todo.csv 后运行 Step-3 / mapping_todo.csv を編集してから Step-3 を実行してください\n")
-    print("""
-┌──────────────────────────────────────────────────────────────┐
-│  📄  mapping_todo.csv 简易填写指南 / mapping_todo.csv 簡易入力ガイド │
-├──────────────────────────────────────────────────────────────┤
-│ 1) 空白 → 跳过 / スキップ                                   │
-│ 2) 0  → 加入 ban_list / ban_list に登録                     │
-│ 3) 数字 n → 视为 canonical_id = n / 数字 n は ID として処理 │
-│ 4) 其他文本 → 新或已有标准名 / それ以外の文字列 = 標準名     │
-├──────────────────────────────────────────────────────────────┤
-│ 保存后运行 Step-3 / 保存して Step-3 を実行してください        │
-│      • 输入 2  → 运行 Step-3（写入数据库）                    │
-│      • 输入 e  → 退出程序                                     │
-│                                                              │
-│  ※ 英語ガイド                                                │
-│      • 2 を入力 → Step-3 実行                                 │
-│      • e を入力 → 終了       
-└──────────────────────────────────────────────────────────────┘
-""")
+    cute_box(
+        f"已生成 mapping_todo.csv，共 {len(todo_df)} 条记录",
+        f"mapping_todo.csv を生成しました：全{len(todo_df)}件",
+        "📝"
+    )
+    cute_box(
+    "Step-2 完成！请编辑 mapping_todo.csv 然后运行 Step-3",
+    "Step-2 完了！mapping_todo.csv を編集してから Step-3 を実行してね",
+    "✅"
+    )
+    cute_box(
+        "mapping_todo.csv 快速填写指南：\n"
+        "1) 空白→跳过\n"
+        "2) 0→加 ban_list\n"
+        "3) n→视为 canonical_id\n"
+        "4) 其他→新/已有标准名",
+        "mapping_todo.csv 簡易入力ガイド：\n"
+        "1) ブランク→スキップ\n"
+        "2) 0→ban_list登録\n"
+        "3) n→canonical_id と見なす\n"
+        "4) その他→新規/既存標準名",
+        "📋"
+    )
 
 # ================ Step-3 ==============
 
@@ -644,8 +723,12 @@ def step3(mysql_url: str):
     res_f  = BASE_DIR / "result.csv"
     todo_f = BASE_DIR / "mapping_todo.csv"
     if not (res_f.exists() and todo_f.exists()):
-        print("❌ 缺少 result.csv 或 mapping_todo.csv / result.csv または mapping_todo.csv が見つかりません"); sys.exit(1)
-
+        cute_box(
+            "找不到 result.csv 或 mapping_todo.csv，请先生成它们",
+            "result.csv または mapping_todo.csv が見つかりません。先に作成してね",
+            "❗"
+        )
+        sys.exit(1)
     # 读取
     df_res  = pd.read_csv(res_f,  dtype=str).fillna("")
     df_map  = pd.read_csv(todo_f, dtype=str).fillna("")
@@ -750,17 +833,34 @@ def step3(mysql_url: str):
     df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
 
-    print(f"✔ Step-3 完成 / 完了：{len(df_map)} 条映射 / 件を処理，result.csv 已更新 / 更新完了")
-    print(f"📌 本批次/今回の Process ID : {process_id}")
+    cute_box(
+        f"Step-3 完成，处理 {len(df_map)} 条映射，result.csv 已更新",
+        f"Step-3 完了：{len(df_map)}件 処理済み，result.csv 更新完了",
+        "🚀"
+    )
+    cute_box(
+    f"本次 Process ID：{process_id}",
+    f"今回の Process ID：{process_id}",
+    "📌"
+    )
 # ================ 主入口 ==============
 
 def main():
     mysql_url = ask_mysql_url()
     try:
         create_engine(mysql_url).connect().close()
-        print("✅ 数据库连通 / データベース接続成功")
+        cute_box(
+            "数据库连接成功！",
+            "データベース接続 成功！",
+            "🔗"
+        )
     except Exception as e:
-        print(f"❌ 数据库连接失败 / データベース接続失敗: {e}"); sys.exit(1)
+        cute_box(
+            f"数据库连接失败：{e}",
+            f"データベース接続 失敗：{e}",
+            "❌"
+        )
+        sys.exit(1)
 
     choice = choose()
 
@@ -775,10 +875,18 @@ def main():
                 step3(mysql_url)
                 break
             elif nxt == "e":
-                print("已退出 / 終了しました。")
+                cute_box(
+                "已退出，拜拜～",
+                "終了しました、またね！",
+                "👋"
+                )
                 return
             else:
-                print("无效输入 / 無効な入力です，请重新输入 / もう一度入力してください。")
+                cute_box(
+                "无效输入，请再试一次！",
+                "無効な入力です。もう一度入力してね！",
+                "🔄"
+                )
 
     else:   # choice == "2"
         step3(mysql_url)
