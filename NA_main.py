@@ -860,25 +860,14 @@ def step4():
         # 两两排列
         for a, b in itertools.permutations(comps, 2):
             rows.append({
-                "Tier_1":           r["Tier_1"],
-                "Tier_2":           r["Tier_2"],
-                "Filename":         r["Filename"],
-                "Title":            r["Title"],
-                "Publisher":        r["Publisher"],
-                "Sentence":         r["Sentence"],
-                "Hit_Count":        r["Hit_Count"],
-                "Matched_Keywords": r["Matched_Keywords"],
                 "company_a":        a,
                 "company_b":        b,
-                "value":            1
             })
 
     # 3) 写到新的 CSV（覆盖式）
     out = _pd.DataFrame(rows)
     out = out[[
-        "Tier_1","Tier_2","Filename","Title","Publisher",
-        "Sentence","Hit_Count","Matched_Keywords",
-        "company_a","company_b","value"
+        "company_a","company_b"
     ]]
     out.to_csv(BASE_DIR / "result_adjacency_list.csv", index=False, encoding="utf-8-sig")
     cute_box(
