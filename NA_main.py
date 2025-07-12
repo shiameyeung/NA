@@ -40,7 +40,8 @@ def ensure_env():
         # 检测几个最常用的包
         import pandas, tqdm, sqlalchemy, rapidfuzz, docx, spacy
         import requests, numpy, torch
-        from sentence_transformers import SentenceTransformer
+        from sentence_transformers import SentenceTransformer     
+        import itertools      
     except ImportError:
         cute_box(
             "发现缺少依赖，正在自动运行 NA_env.py 安装环境…",
@@ -85,6 +86,8 @@ from typing import List, Dict, Set
 
 from datetime import datetime
 import random
+
+import itertools
 
 import pandas as pd
 from tqdm import tqdm
@@ -251,8 +254,8 @@ def ask_mysql_url() -> str:
 def choose() -> str:
     # ── 1. 选项框 ───────────────────────────────────────────
     cute_box(
-        "① 初次运行（Step-1 ➜ Step-2）\n② 已有映射（Step-3）\n作者：楊天楽@関西大学 伊佐田研究室",
-        "① 初回実行（Step-1 ➜ Step-2）\n② mapping適用のみ（Step-3）\n作成者：楊天楽@関西大学 伊佐田研究室",
+        "① 初次运行（Step-1 ➜ Step-2）\n② mapping适用/邻接（Step-3/4）\n作者：杨 天乐 协作：李 佳璇 李 宗昊 @関西大学　伊佐田研究室",
+        "① 初回実行（Step-1 ➜ Step-2）\n② mapping適用/隣接（Step-3/4）\n作成者：楊 天楽　協力：李 佳璇 李 宗昊 @関西大学　伊佐田研究室",
         "📋"
     )
     c = input("请输入 1 或 2 / 1 か 2 を入力してください: ").strip()
@@ -592,8 +595,8 @@ def step2(mysql_url: str):
         "📑"
     )
 
-       # ---- 生成 mapping_todo.csv ----
-        # ---- 生成 mapping_todo.csv ----
+       # ---- 生成 result_mapping_todo.csv ----
+        # ---- 生成 result_mapping_todo.csv ----
     # 1) 为了能查到 canonical 的 id，先做一个 name→id 的字典
     canon_name2id = {row.canonical_name: row.id for row in df_canon.itertuples()}
 
@@ -680,25 +683,25 @@ def step2(mysql_url: str):
     todo_df['Sentence'] = todo_df['Sentence'].apply(
     lambda s: "'" + s if isinstance(s, str) and s.startswith('=') else s
     )
-    todo_df.to_csv(BASE_DIR / "mapping_todo.csv",
+    todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
                    index=False, encoding="utf-8-sig")
     cute_box(
-        f"已生成 mapping_todo.csv，共 {len(todo_df)} 条记录",
-        f"mapping_todo.csv を生成しました：全{len(todo_df)}件",
+        f"已生成 result_mapping_todo.csv，共 {len(todo_df)} 条记录",
+        f"result_mapping_todo.csv を生成しました：全{len(todo_df)}件",
         "📝"
     )
     cute_box(
-    "Step-2 完成！请编辑 mapping_todo.csv 然后运行 Step-3",
-    "Step-2 完了！mapping_todo.csv を編集してから Step-3 を実行してね",
+    "Step-2 完成！请编辑 result_mapping_todo.csv 然后运行 Step-3",
+    "Step-2 完了！result_mapping_todo.csv を編集してから Step-3 を実行してね",
     "✅"
     )
     cute_box(
-        "mapping_todo.csv 快速填写指南：\n"
+        "result_mapping_todo.csv 快速填写指南：\n"
         "1) 空白→跳过\n"
         "2) 0→加 ban_list\n"
         "3) n→视为 canonical_id\n"
         "4) 其他→新/已有标准名",
-        "mapping_todo.csv 簡易入力ガイド：\n"
+        "result_mapping_todo.csv 簡易入力ガイド：\n"
         "1) ブランク→スキップ\n"
         "2) 0→ban_list登録\n"
         "3) n→canonical_id と見なす\n"
@@ -721,11 +724,11 @@ def step3(mysql_url: str):
     # 本轮批次号：YYYYMMDD + 8位随机数
     process_id = datetime.now().strftime("%Y%m%d") + f"{random.randint(0, 99999999):08d}"
     res_f  = BASE_DIR / "result.csv"
-    todo_f = BASE_DIR / "mapping_todo.csv"
+    todo_f = BASE_DIR / "result_mapping_todo.csv"
     if not (res_f.exists() and todo_f.exists()):
         cute_box(
-            "找不到 result.csv 或 mapping_todo.csv，请先生成它们",
-            "result.csv または mapping_todo.csv が見つかりません。先に作成してね",
+            "找不到 result.csv 或 result_mapping_todo.csv，请先生成它们",
+            "result.csv または result_mapping_todo.csv が見つかりません。先に作成してね",
             "❗"
         )
         sys.exit(1)
@@ -823,25 +826,91 @@ def step3(mysql_url: str):
             # —— 标记结果 & 批次号 ——  
             df_map.at[idx, "Std_Result"] = "Added"
             df_map.at[idx, "Process_ID"] = f"'{process_id}"
-
-    # 3) 应用最新映射到 result.csv
-    for col in [c for c in df_res.columns if c.startswith("company_")]:
-        df_res[col] = df_res[col].apply(lambda x: alias_map.get(x, x))
-
-    df_res = dedup_company_cols(df_res)
-    # df_map["Process_ID"] = "'" + process_id   # ← 前面加单引号，Excel 会当文本
+    
     df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
-
+    
     cute_box(
         f"Step-3 完成，处理 {len(df_map)} 条映射，result.csv 已更新",
         f"Step-3 完了：{len(df_map)}件 処理済み，result.csv 更新完了",
         "🚀"
     )
+    
     cute_box(
-    f"本次 Process ID：{process_id}",
-    f"今回の Process ID：{process_id}",
-    "📌"
+      f"本批次 Process ID：{process_id}",
+      f"今回の Process ID：{process_id}",
+      "📌"
+    )
+               
+            
+def step4():
+    """
+    从 result.csv 中读取 company_1..company_50 列，
+    对所有非空公司两两排列，写入 result_adjacency_list.csv。
+    """
+    import pandas as _pd
+
+    # 1) 读 CSV
+    df = _pd.read_csv(BASE_DIR / "result.csv", dtype=str).fillna("")
+
+    # 2) 准备输出行
+    rows = []
+    for _, r in tqdm(df.iterrows(), desc="生成邻接表", total=len(df)):
+        comps = [r[f"company_{i}"] for i in range(1, MAX_COMP_COLS+1) if r[f"company_{i}"].strip()]
+        # 两两排列
+        for a, b in itertools.permutations(comps, 2):
+            rows.append({
+                "Tier_1":           r["Tier_1"],
+                "Tier_2":           r["Tier_2"],
+                "Filename":         r["Filename"],
+                "Title":            r["Title"],
+                "Publisher":        r["Publisher"],
+                "Sentence":         r["Sentence"],
+                "Hit_Count":        r["Hit_Count"],
+                "Matched_Keywords": r["Matched_Keywords"],
+                "company_a":        a,
+                "company_b":        b,
+                "value":            1
+            })
+
+    # 3) 写到新的 CSV（覆盖式）
+    out = _pd.DataFrame(rows)
+    out = out[[
+        "Tier_1","Tier_2","Filename","Title","Publisher",
+        "Sentence","Hit_Count","Matched_Keywords",
+        "company_a","company_b","value"
+    ]]
+    out.to_csv(BASE_DIR / "result_adjacency_list.csv", index=False, encoding="utf-8-sig")
+    cute_box(
+        "Step4 已生成邻接表：result_adjacency_list.csv",
+        "Step4 隣接リストを生成しました：result_adjacency_list.csv",
+        "📋"
+    )
+    # 4) 生成透视表（行=company_a，列=company_b，值=共现次数）
+    pivot = out.pivot_table(
+        index="company_a",
+        columns="company_b",
+        values="value",
+        aggfunc="sum",
+        fill_value=0     # 先把不存在的组合填成 0
+    )
+    # 把 0 换成空串
+    pivot = pivot.replace(0, "")
+
+    # 重置索引，把 company_a 拉到第一列，然后去掉所有 header
+    df_pivot = pivot.reset_index()
+
+    # 写 CSV —— header=False、index=False，就只有红框里的区域
+    df_pivot.to_csv(
+        BASE_DIR / "result_pivot_table.csv",
+        index=False,
+        header=False,
+        encoding="utf-8-sig"
+    )
+    cute_box(
+        "Step4 已生成透视表：result_pivot_table.csv",
+        "Step4 ピボットテーブルを生成しました：result_pivot_table.csv",
+        "📊"
     )
 # ================ 主入口 ==============
 
@@ -870,9 +939,15 @@ def main():
 
         # —— 新增：跑完 Step-2 后等待用户指令 ——
         while True:
-            nxt = input("👉 输入 2 继续 Step-3，或输入 e 退出 / 2 でStep-3を続行, e で終了: ").strip().lower()
+            nxt = input("👉 输入 2 继续 Step-3/4，或输入 e 退出 / 2 でStep-3/4を続行, e で終了: ").strip().lower()
             if nxt == "2":
                 step3(mysql_url)
+                step4()
+                cute_box(
+                "Step-3/4 全部完成！",
+                "Step-3/4 全て完了しました！",
+                "🎉"
+                )
                 break
             elif nxt == "e":
                 cute_box(
@@ -890,6 +965,12 @@ def main():
 
     else:   # choice == "2"
         step3(mysql_url)
+        step4()
+        cute_box(
+        "Step-3/4 全部完成！",
+        "Step-3/4 全て完了しました！",
+         "🎉"
+        )
 
 
 if __name__ == "__main__":
