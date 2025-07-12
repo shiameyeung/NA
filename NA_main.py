@@ -844,65 +844,57 @@ def step3(mysql_url: str):
                
             
 def step4():
-    """
-    从 result.csv 中读取 company_1..company_50 列，
-    对所有非空公司两两排列，写入 result_adjacency_list.csv。
-    """
     import pandas as _pd
 
     # 1) 读 CSV
     df = _pd.read_csv(BASE_DIR / "result.csv", dtype=str).fillna("")
 
-    # 2) 准备输出行
+    # 2) 准备输出行：注意这里给每一条都加上 value=1
     rows = []
     for _, r in tqdm(df.iterrows(), desc="生成邻接表", total=len(df)):
-        comps = [r[f"company_{i}"] for i in range(1, MAX_COMP_COLS+1) if r[f"company_{i}"].strip()]
-        # 两两排列
+        comps = [r[f"company_{i}"] 
+                 for i in range(1, MAX_COMP_COLS+1) 
+                 if r[f"company_{i}"].strip()]
         for a, b in itertools.permutations(comps, 2):
             rows.append({
-                "company_a":        a,
-                "company_b":        b,
+                "company_a": a,
+                "company_b": b,
+                "value": 1,
             })
 
-    # 3) 写到新的 CSV（覆盖式）
+    # 3) 构建完整 DataFrame
     out = _pd.DataFrame(rows)
-    out = out[[
-        "company_a","company_b"
-    ]]
-    out.to_csv(BASE_DIR / "result_adjacency_list.csv", index=False, encoding="utf-8-sig")
+
+    # 4) 写 adjacency list （只保留 a/b 两列）
+    out[['company_a','company_b']].to_csv(
+        BASE_DIR / "result_adjacency_list.csv",
+        index=False, encoding="utf-8-sig"
+    )
     cute_box(
         "Step4 已生成邻接表：result_adjacency_list.csv",
         "Step4 隣接リストを生成しました：result_adjacency_list.csv",
         "📋"
     )
-    # 4) 生成透视表（行=company_a，列=company_b，值=共现次数）
+
+    # ——— 生成带行列标题的 Pivot Table ———
     pivot = out.pivot_table(
-        index="company_a",
-        columns="company_b",
-        values="value",
-        aggfunc="sum",
-        fill_value=0     # 先把不存在的组合填成 0
+        index="company_a",      # 行标签
+        columns="company_b",    # 列标签
+        values="value",         # 聚合字段
+        aggfunc="sum",          # 把所有 value=1 累加
+        fill_value=""           # 0 或 NaN 都显示空白
     )
-    # 把 0 换成空串
-    pivot = pivot.replace(0, "")
 
-    # 重置索引，把 company_a 拉到第一列，然后去掉所有 header
-    df_pivot = pivot.reset_index()
-
-    # 写 CSV —— header=False、index=False，就只有红框里的区域
-    df_pivot.to_csv(
-        BASE_DIR / "result_pivot_table.csv",
-        index=False,
-        header=False,
+    # 5) 导出带行/列标题的矩阵
+    pivot.to_csv(
+        BASE_DIR / "pivot_table.csv",
         encoding="utf-8-sig"
     )
     cute_box(
-        "Step4 已生成透视表：result_pivot_table.csv",
-        "Step4 ピボットテーブルを生成しました：result_pivot_table.csv",
+        "Step4 已生成透视表：pivot_table.csv",
+        "Step4 ピボットテーブルを生成しました：pivot_table.csv",
         "📊"
     )
-# ================ 主入口 ==============
-
 def main():
     mysql_url = ask_mysql_url()
     try:
