@@ -35,47 +35,89 @@ def cute_box(cn: str, jp: str, icon: str = "🌸") -> None:
 
 import sys, subprocess, os
 
-def ensure_env():
-    try:
-        # 检测几个最常用的包
-        import pandas, tqdm, sqlalchemy, rapidfuzz, docx, spacy
-        import requests, numpy, torch
-        from sentence_transformers import SentenceTransformer     
-        import itertools      
-    except ImportError:
-        cute_box(
-            "发现缺少依赖，正在自动运行 NA_env.py 安装环境…",
-            "依存関係が足りないよ！NA_env.py を実行中…",
-            "🐰"
-        )
-        # 如果工作目录里没有 NA_env.py，就先下载
-        if not os.path.exists("NA_env.py"):
-            cute_box(
-                "自动下载 NA_env.py 中…",
-                "NA_env.py をダウンロード中…",
-                "🌟"
-            )
-            subprocess.check_call([
-                sys.executable, "-m", "curl",
-                "-fsSL",
-                "https://raw.githubusercontent.com/shiameyeung/NA/main/NA_env.py",
-                "-o", "NA_env.py"
-            ])
-        # 调用 NA_env.py 执行安装
-        ret = subprocess.call([sys.executable, "NA_env.py"])
-        if ret != 0:
-            cute_box(
-                "运行失败，请手动执行：python NA_env.py",
-                "実行に失敗しました。手動で python NA_env.py を実行してね",
-                "⚠️"
-            )
+def ensure_env() -> None:
+    """
+    ❶ 先判断 Python 版本：
+       • < 3.13 ── 用旧版依赖：NumPy<2、spaCy 3.7.x、torch 2.2-2.2.x…
+       • ≥3.13 ── 用新版依赖：NumPy>=2、spaCy 3.8.7+，torch 2.6.0 (目前唯一官方轮子)
+    ❷ 调用 pip 安装缺失 / 版本不符的包
+    ❸ 如需下载 spaCy 英语小模型 en_core_web_sm 亦会执行
+    ❹ 只要本轮**动过安装** (did_install=True) 就 `sys.exit(0)`，
+       让用户重新跑；否则直接返回，主程序继续执行。
+    """
+    import sys, subprocess, importlib, importlib.util
+
+    def pip_install(pkgs: list[str]):
+        """统一 pip 安装入口，带 -U 升级"""
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-U"] + pkgs)
+
+    # ---------- 1. 根据 Python 版本决定依赖 ----------
+    py_major, py_minor = sys.version_info[:2]
+    is_new_py = (py_major, py_minor) >= (3, 13)
+
+    if is_new_py:
+        core_pkgs = ["numpy>=2.0.0", "spacy>=3.8.7", "thinc>=8.3.6", "blis>=1.0.0"]
+        # PyTorch 官方目前只打包了 2.6.0 (CPU) 供 3.13 使用
+        torch_spec = "torch==2.6.0"
+    else:
+        core_pkgs = ["numpy<2.0.0", "spacy<3.8.0", "thinc<8.3.0", "blis<0.8.0"]
+        torch_spec = "torch>=2,<2.3"
+
+    common_pkgs = [
+        "pandas", "tqdm", "sqlalchemy", "pymysql",
+        "rapidfuzz", "python-docx", "requests",
+        "sentence-transformers", torch_spec,
+    ]
+
+    wanted_pkgs = core_pkgs + common_pkgs
+
+    # ---------- 2. 检查哪些包缺失 / 版本不符 ----------
+    def need_install(spec: str) -> bool:
+        """
+        简单判断：若 import 失败 或者版本不满足 pep‐440 规范就返回 True
+        （用 importlib.metadata.version + packaging.version 做比较）
+        """
+        from importlib.metadata import PackageNotFoundError, version
+        from packaging.specifiers import SpecifierSet
+        from packaging.requirements import Requirement
+
+        req = Requirement(spec)
+        dist_name = req.name.replace("-", "_")
+        try:
+            cur_ver = version(req.name)
+        except PackageNotFoundError:
+            return True
+        return cur_ver not in SpecifierSet(str(req.specifier))
+
+    to_install = [spec for spec in wanted_pkgs if need_install(spec)]
+
+    did_install = False
+    if to_install:
+        try:
+            print("🔄 正在安装 / 升级依赖：", ", ".join(to_install))
+            pip_install(to_install)
+            did_install = True
+        except subprocess.CalledProcessError:
+            print("❌ 自动安装失败，请根据上方日志手动解决依赖后再重试")
             sys.exit(1)
-        cute_box(
-            "环境安装完成，请重新运行 NA_main.py！",
-            "環境のインストール完了！もう一度 NA_main.py を実行してね",
-            "🎉"
+
+    # ---------- 3. 确保 spaCy 英文模型存在 ----------
+    try:
+        import spacy
+        spacy.load("en_core_web_sm")
+    except (ImportError, OSError):
+        print("🔄 下载 spaCy 模型 en_core_web_sm …")
+        subprocess.check_call(
+            [sys.executable, "-m", "spacy", "download", "en_core_web_sm"]
         )
+        did_install = True
+
+    # ---------- 4. 提示并视情况退出 ----------
+    print("🎉 依赖检查完毕，可运行脚本！")
+    if did_install:
+        # 第一次或者刚刚升级过，要求用户重新执行主脚本
         sys.exit(0)
+    # 否则什么都不做，直接返回让主程序继续
 
 # —————— 在脚本一启动就先确保环境 ——————
 ensure_env()
