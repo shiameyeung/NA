@@ -37,87 +37,121 @@ import sys, subprocess, os
 
 def ensure_env() -> None:
     """
-    ❶ 先判断 Python 版本：
-       • < 3.13 ── 用旧版依赖：NumPy<2、spaCy 3.7.x、torch 2.2-2.2.x…
-       • ≥3.13 ── 用新版依赖：NumPy>=2、spaCy 3.8.7+，torch 2.6.0 (目前唯一官方轮子)
-    ❷ 调用 pip 安装缺失 / 版本不符的包
-    ❸ 如需下载 spaCy 英语小模型 en_core_web_sm 亦会执行
-    ❹ 只要本轮**动过安装** (did_install=True) 就 `sys.exit(0)`，
-       让用户重新跑；否则直接返回，主程序继续执行。
+    ❶ 判断 Python 版本，给出“老依赖 / 新依赖”两套清单  
+    ❷ 先升级 pip / setuptools / wheel，再确保 packaging 与 requests 存在  
+    ❸ 安装或升级其余依赖；缺什么自动补什么  
+    ❹ 若本轮确实安装过东西，则 cute_box 提示后 sys.exit(0)，
+       让用户重新执行主脚本；否则直接返回继续跑
     """
-    import sys, subprocess, importlib, importlib.util
+    import sys, subprocess
 
+    # ---------- 0. 小工具 ----------
     def pip_install(pkgs: list[str]):
-        """统一 pip 安装入口，带 -U 升级"""
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-U"] + pkgs)
+        """统一 pip 安装入口（带 -U 升级）"""
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-U", *pkgs],
+            stdout=subprocess.DEVNULL  # 保持输出简洁，可按需去掉
+        )
 
-    # ---------- 1. 根据 Python 版本决定依赖 ----------
+    # ---------- 1. 先升级 pip / setuptools / wheel ----------
+    cute_box(
+        "正在升级 pip / setuptools / wheel …",
+        "pip / setuptools / wheel をアップグレード中…",
+        "🔧"
+    )
+    pip_install(["pip", "setuptools", "wheel"])
+
+    # ---------- 2. 确保 packaging & requests 存在 ----------
+    for base_pkg, jp_name in [("packaging", "packaging"), ("requests", "requests")]:
+        try:
+            __import__(base_pkg)
+        except ImportError:
+            cute_box(
+                f"缺少 {base_pkg}，正在安装…",
+                f"{jp_name} がありません。インストール中…",
+                "📦"
+            )
+            pip_install([base_pkg])
+
+    # 之后要用 packaging 里的版本比较
+    from importlib.metadata import version, PackageNotFoundError
+    from packaging.specifiers import SpecifierSet
+    from packaging.requirements import Requirement
+
+    # ---------- 3. 根据 Python 版本决定依赖 ----------
     py_major, py_minor = sys.version_info[:2]
     is_new_py = (py_major, py_minor) >= (3, 13)
 
     if is_new_py:
         core_pkgs = ["numpy>=2.0.0", "spacy>=3.8.7", "thinc>=8.3.6", "blis>=1.0.0"]
-        # PyTorch 官方目前只打包了 2.6.0 (CPU) 供 3.13 使用
-        torch_spec = "torch==2.6.0"
+        torch_spec = "torch==2.6.0"          # PyTorch 目前对 3.13 仅此版本
     else:
         core_pkgs = ["numpy<2.0.0", "spacy<3.8.0", "thinc<8.3.0", "blis<0.8.0"]
         torch_spec = "torch>=2,<2.3"
 
     common_pkgs = [
         "pandas", "tqdm", "sqlalchemy", "pymysql",
-        "rapidfuzz", "python-docx", "requests",
-        "sentence-transformers", torch_spec,
+        "rapidfuzz", "python-docx", "sentence-transformers",
+        torch_spec,
     ]
 
-    wanted_pkgs = core_pkgs + common_pkgs
+    wanted = core_pkgs + common_pkgs
 
-    # ---------- 2. 检查哪些包缺失 / 版本不符 ----------
+    # ---------- 4. 判断哪些包需要安装 / 升级 ----------
     def need_install(spec: str) -> bool:
-        """
-        简单判断：若 import 失败 或者版本不满足 pep‐440 规范就返回 True
-        （用 importlib.metadata.version + packaging.version 做比较）
-        """
-        from importlib.metadata import PackageNotFoundError, version
-        from packaging.specifiers import SpecifierSet
-        from packaging.requirements import Requirement
-
         req = Requirement(spec)
-        dist_name = req.name.replace("-", "_")
         try:
             cur_ver = version(req.name)
         except PackageNotFoundError:
             return True
         return cur_ver not in SpecifierSet(str(req.specifier))
 
-    to_install = [spec for spec in wanted_pkgs if need_install(spec)]
+    to_install = [spec for spec in wanted if need_install(spec)]
 
     did_install = False
     if to_install:
+        cute_box(
+            "安装 / 升级以下依赖：\n" + "\n".join(to_install),
+            "次の依存関係をインストール / アップグレードします：\n" + "\n".join(to_install),
+            "📦"
+        )
         try:
-            print("🔄 正在安装 / 升级依赖：", ", ".join(to_install))
             pip_install(to_install)
             did_install = True
         except subprocess.CalledProcessError:
-            print("❌ 自动安装失败，请根据上方日志手动解决依赖后再重试")
+            cute_box(
+                "❌ 自动安装失败，请手动根据日志解决依赖后重试",
+                "❌ 自動インストール失敗。ログを確認し、手動で依存関係を解決してください",
+                "⚠️"
+            )
             sys.exit(1)
 
-    # ---------- 3. 确保 spaCy 英文模型存在 ----------
+    # ---------- 5. 确保 spaCy 英文模型 ----------
     try:
         import spacy
         spacy.load("en_core_web_sm")
     except (ImportError, OSError):
-        print("🔄 下载 spaCy 模型 en_core_web_sm …")
-        subprocess.check_call(
-            [sys.executable, "-m", "spacy", "download", "en_core_web_sm"]
+        cute_box(
+            "下载 spaCy 模型 en_core_web_sm …",
+            "spaCy モデル en_core_web_sm をダウンロード中…",
+            "🔄"
         )
+        subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
         did_install = True
 
-    # ---------- 4. 提示并视情况退出 ----------
-    print("🎉 依赖检查完毕，可运行脚本！")
+    # ---------- 6. 结束语 ----------
+    cute_box(
+        "依赖检查完毕，脚本可以运行！",
+        "依存関係チェック完了。スクリプトを実行できます！",
+        "🎉"
+    )
     if did_install:
-        # 第一次或者刚刚升级过，要求用户重新执行主脚本
+        cute_box(
+            "首次/刚升级完，请重新运行主脚本。",
+            "初回実行またはアップグレード直後です。もう一度メインスクリプトを実行してください。",
+            "🔁"
+        )
         sys.exit(0)
-    # 否则什么都不做，直接返回让主程序继续
 
 # —————— 在脚本一启动就先确保环境 ——————
 ensure_env()
