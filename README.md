@@ -1,139 +1,105 @@
-```markdown
-# 初回セットアップ
+# 初回
+## NA_launcher.pyをダウンロードする。
 
-## 1. NA_launcher.py をダウンロード
+（Windowsのみ、macOSは不要）以下リンクをダウンロード、インストール  
+https://aka.ms/vs/17/release/vc_redist.x64.exe
 
----
+## Pythonを用意  
+Python 3.11.9  
+**Windows：**  
+https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe  
+**macOS：**  
+https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
 
-### 2. （Windowsのみ、macOSは不要）  
-以下リンクからダウンロード＆インストール  
-[vc_redist.x64.exe (Microsoft Visual C++ 再頒布可能パッケージ)](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+> インストールする時、 “Add to PATH”をチェックよう
 
----
+## 環境設定１  
+macOSのターミナルに、WindowsのPowerShellにペーストして実行する
 
-### 3. Python を用意（**推奨バージョン: 3.11.9**）
-
-- **Windows:**  
-  [python-3.11.9-amd64.exe](https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe)
-- **macOS:**  
-  [python-3.11.9-macos11.pkg](https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg)
-
-> **インストール時は必ず「Add to PATH」にチェックを入れてください**
-
----
-
-## 4. 環境設定
-
-### 4.1 プロジェクトフォルダ作成  
-**macOS（ターミナル）:**  
+**macOS：**  
 ```bash
 mkdir -p ~/NA_project && cd ~/NA_project
 ```
-**Windows（PowerShell）:**  
+**Windows：**  
 ```powershell
-mkdir $env:USERPROFILE\NA_project; cd $env:USERPROFILE\NA_project
+mkdir %USERPROFILE%\NA_project && cd %USERPROFILE%\NA_project
 ```
 
----
-
-### 4.2 仮想環境の作成  
+## 環境設定2  
 ```bash
 python -m venv NA_env
 ```
 
----
-
-### 4.3 仮想環境の有効化
-
-**macOS:**  
+## 環境設定3  
+**macOS：**  
 ```bash
 source NA_env/bin/activate
 ```
-**Windows:**  
+**Windows：**  
 ```powershell
 .\NA_env\Scripts\Activate.ps1
 ```
 
----
-
-### 4.4 パッケージ管理ツールのアップグレード  
+## 環境設定4  
 ```bash
 pip install -U pip setuptools wheel
 ```
 
----
+`"python "`を入力（pythonの後ろはスペース）
 
-### 4.5 "python "（後ろにスペース）と入力
+NA_launcher.pyをターミナル（macOSまたはWindows）にドラッグ&ドロップし、エンターキーを押す
 
----
-
-### 4.6  
-**NA_launcher.py** を  
-- macOSのターミナル  
-- WindowsのPowerShell  
-へドラッグ&ドロップし、**エンターキー**を押す
+最終の環境設定完了まで待ち
 
 ---
 
-### 4.7  
-最終の環境設定完了までお待ちください
+# 毎回
+
+事前にダウンロードした `NA_launcher.py` を、処理したい `.DOCX` ファイルと同じフォルダに移動。
+
+macOSのターミナル、またはWindowsのPowerShellで:
+
+**macOS：**  
+```bash
+source NA_env/bin/activate
+```
+**Windows：**  
+```powershell
+.\NA_env\Scripts\Activate.ps1
+```
+
+`"python "`を入力（pythonの後ろはスペース）
+
+NA_launcher.pyをターミナル/PowerShellにドラッグ&ドロップ、エンターキーを押す
+
+事前にもらったキーコードをペースト（初回のみ）、エンターキーを押す
+
+選択肢１を選ぶ（`1`を入力、エンターキーを押す）
+
+実行完了後、`NA_mapping_todo.csv` を開き、F列（canonical_name）を適度に完成する
+
+**参考：**  
+- Bad_rateが高いほど、偽企業名の確率が高い  
+- Adviceは現存の正規企業名とマッチしたもの  
+- Advice IDはその正規企業名のID  
+- canonical_name表：現有の正規企業名一覧
+
+**入力：**  
+- 偽企業名 → `0`  
+- 現存の正規企業名がある → ID（canonical_name表またはAdvice IDの数字）  
+- 現存の正規企業名がない → 設定したい新規正規企業名（英字・数字）
+
+> 数分ごとで必ず保存することを！！！
+
+最後、保存して閉じる。
+
+macOSのターミナル、またはWindowsのPowerShellに戻る  
+- 先閉じなかったら：`2`を入力、エンターキーを押す  
+- 閉じたら：`"python "`を入力 → NA_launcher.pyをドラッグ&ドロップ → エンターキー → 選択肢「2」を選ぶ（`2`を入力、エンターキー）
 
 ---
 
-# 毎回の使い方
-
----
-
-1. 事前にダウンロードした `NA_launcher.py` を、処理したい `.DOCX` ファイルが入ったフォルダと同じ場所に移動。
-
-2. **仮想環境の有効化**
-   - macOS:
-     ```bash
-     source NA_env/bin/activate
-     ```
-   - Windows:
-     ```powershell
-     .\NA_env\Scripts\Activate.ps1
-     ```
-
-3. `"python "`（後ろにスペース）と入力
-
-4. `NA_launcher.py` をターミナルやPowerShellにドラッグ&ドロップ、**エンターキー**を押す
-
-5. **初回のみ**  
-   事前にもらったキーコードをペースト、**エンターキー**を押す
-
-6. **選択肢「1」を選ぶ**（`1`を入力、**エンターキー**）
-
-7. 実行完了後、`NA_mapping_todo.csv` を開き、F列（canonical_name）を必要に応じて記入
-
-    - 参考:  
-        - Bad_rate が高いほど、偽企業名の確率が高い  
-        - Advice は既存の正規企業名とマッチしたもの  
-        - Advice ID はその正規企業名のID  
-        - canonical_name表: 現有の正規企業名一覧
-
-    - 入力ルール:  
-        - 偽企業名          → `0`  
-        - 既存の正規企業名がある  → canonical_name表、またはAdvice IDの数字  
-        - 既存の正規企業名がない  → 新規正規企業名（英字・数字）
-
-    - **数分ごとに必ず保存！**
-
-8. 編集が終わったら保存・閉じる
-
----
-
-### 8.1 続きの処理
-
-- ターミナル/PowerShell に戻る
-- まだ閉じていなければ、`2` を入力、**エンターキー**
-- 閉じた場合は `"python "`（スペース付き）と入力、再び `NA_launcher.py` をドラッグ&ドロップ、**エンターキー**
-- 選択肢「2」を選ぶ（`2`を入力、**エンターキー**）
-
----
-
-# 🎉 大完成！結果を見よう！ 🎉
+# 大完成！！！結果を見よう！！！
 
 ---
 
@@ -152,5 +118,3 @@ pip install -U pip setuptools wheel
 
 **作者 / Author / 作成者：楊 天楽 (Shiame Yeung)**  
 **协助 / In cooperation with / 協力：李 宗昊 李 佳璇**
-
-```
