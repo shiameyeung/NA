@@ -1,7 +1,10 @@
 ## 初回
 # NA_launcher.pyをダウンロードする。
 
-# Pythonを用意  　← 初回だけ
+# （Windowsのみ、macOSは不要）以下リンクをダウンロード、インストール
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+# Pythonを用意
 # Python 3.11.9
 # Windows：
 # https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
