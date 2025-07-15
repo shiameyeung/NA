@@ -65,8 +65,8 @@ pip install -U pip setuptools wheel
 6. 「1」と入力してEnter  
 7. 完了後、`NA_mapping_todo.csv` を開き、F列（canonical_name）を記入  
    - **参考**  
-     - Bad_rate：値が高いほど偽企業名の可能性↑  
-     - Advice：既存の正規名とマッチした候補  
+     - Bad_rate：値が高いほど、偽企業名の可能性高い  
+     - Advice：既存の正規企業名とマッチした候補  
      - Advice ID：正規企業名のID
      - canonical_name表で現存の正規企業名一覧を参考
    - **入力ルール**  
