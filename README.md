@@ -6,33 +6,34 @@ https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 # Pythonを用意
 # Python 3.11.9
-# Windows：
-# https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
-# macOS：
-# https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
-# インストールする時、 “Add to PATH”をチェックよう
+Windows：
+https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
+macOS：
+https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
+
+インストールする時、 “Add to PATH”をチェックよう
 
 
 # 環境設定１
-# macOSのターミナルに、WindowsのPowerShellにペーストして実行する
-# macOS：
+macOSのターミナルに、WindowsのPowerShellにペーストして実行する
+macOS：
 mkdir -p ~/NA_project && cd ~/NA_project
-# Windows:
+Windows:
 mkdir %USERPROFILE%\NA_project && cd %USERPROFILE%\NA_project
 
 # 環境設定2
-# ペーストして実行する
+ペーストして実行する
 python -m venv NA_env
 
 # 環境設定3
-# ペーストして実行する
-# macOS:
+ペーストして実行する
+macOS:
 source NA_env/bin/activate
-# Windows:
+Windows:
 .\NA_env\Scripts\Activate.ps1
 
 # 環境設定4
-# ペーストして実行する
+ペーストして実行する
 pip install -U pip setuptools wheel
 
 # "python "を入力（pythonの後ろはスペース）する
@@ -46,9 +47,9 @@ pip install -U pip setuptools wheel
 # 事前にダウンロードしたNA_launcher.pyを、処理したいの.DOCXファイルを内蔵したフォルダの同層に移動。
 
 # macOSのターミナルに、WindowsのPowerShellにペーストして実行する
-# macOS:
+macOS:
 source NA_env/bin/activate
-# Windows:
+Windows:
 .\NA_env\Scripts\Activate.ps1
 
 # "python "を入力（pythonの後ろはスペース）する
