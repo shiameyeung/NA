@@ -67,7 +67,8 @@ pip install -U pip setuptools wheel
    - **参考**  
      - Bad_rate：値が高いほど偽企業名の可能性↑  
      - Advice：既存の正規名とマッチした候補  
-     - Advice ID：正規企業名のID  
+     - Advice ID：正規企業名のID
+     - canonical_name表で現存の正規企業名一覧を参考
    - **入力ルール**  
      - 偽企業名 → `0`  
      - 既存の正規企業名 → ID（canonical_name表またはAdvice ID）  
