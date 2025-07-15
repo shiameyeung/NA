@@ -92,11 +92,3 @@ pip install -U pip setuptools wheel
 ご不明点やご意見は以下までお問い合わせください：  
 作者：楊 天楽 (Shiame Yeung)  
 協力：李 宗昊、李 佳璇
-
----
-
-## 📧 技術サポート
-
-疑問点や改善提案はこちらまで：  
-作者：楊 天楽 (Shiame Yeung)  
-協力：李 宗昊、李 佳璇
