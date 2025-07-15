@@ -1,7 +1,7 @@
 # 初回
 ## NA_launcher.pyをダウンロードする。
 
-（Windowsのみ、macOSは不要）以下リンクをダウンロード、インストール  
+（Windowsのみ、macOSは不要）以下リンクからダウンロード・インストール  
 https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ## Pythonを用意  
@@ -11,110 +11,90 @@ https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
 **macOS：**  
 https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg
 
-> インストールする時、 “Add to PATH”をチェックよう
+> インストール時は「Add to PATH」に必ずチェックを入れてください
 
-## 環境設定１  
-macOSのターミナルに、WindowsのPowerShellにペーストして実行する
+## 環境設定１：プロジェクトフォルダ作成
 
-**macOS：**  
+**macOS（ターミナル）**  
 ```bash
 mkdir -p ~/NA_project && cd ~/NA_project
 ```
-**Windows：**  
+**Windows（PowerShell）**  
 ```powershell
-mkdir %USERPROFILE%\NA_project && cd %USERPROFILE%\NA_project
+mkdir %USERPROFILE%\NA_project
+cd %USERPROFILE%\NA_project
 ```
 
-## 環境設定2  
+## 環境設定２：仮想環境の作成
 ```bash
 python -m venv NA_env
 ```
 
-## 環境設定3  
-**macOS：**  
-```bash
-source NA_env/bin/activate
-```
-**Windows：**  
-```powershell
-.\NA_env\Scripts\Activate.ps1
-```
+## 環境設定３：仮想環境を有効化
 
-## 環境設定4  
+- **macOS：**
+  ```bash
+  source NA_env/bin/activate
+  ```
+- **Windows：**
+  ```powershell
+  .\NA_env\Scripts\Activate.ps1
+  ```
+
+## 環境設定４：必要パッケージのインストール
 ```bash
 pip install -U pip setuptools wheel
 ```
 
-`"python "`を入力（pythonの後ろはスペース）
-
-NA_launcher.pyをターミナル（macOSまたはWindows）にドラッグ&ドロップし、エンターキーを押す
-
-最終の環境設定完了まで待ち
-
----
-
-# 毎回
-
-事前にダウンロードした `NA_launcher.py` を、処理したい `.DOCX` ファイルと同じフォルダに移動。
-
-macOSのターミナル、またはWindowsのPowerShellで:
-
-**macOS：**  
-```bash
-source NA_env/bin/activate
-```
-**Windows：**  
-```powershell
-.\NA_env\Scripts\Activate.ps1
-```
-
-`"python "`を入力（pythonの後ろはスペース）
-
-NA_launcher.pyをターミナル/PowerShellにドラッグ&ドロップ、エンターキーを押す
-
-事前にもらったキーコードをペースト（初回のみ）、エンターキーを押す
-
-選択肢１を選ぶ（`1`を入力、エンターキーを押す）
-
-実行完了後、`NA_mapping_todo.csv` を開き、F列（canonical_name）を適度に完成する
-
-**参考：**  
-- Bad_rateが高いほど、偽企業名の確率が高い  
-- Adviceは現存の正規企業名とマッチしたもの  
-- Advice IDはその正規企業名のID  
-- canonical_name表：現有の正規企業名一覧
-
-**入力：**  
-- 偽企業名 → `0`  
-- 現存の正規企業名がある → ID（canonical_name表またはAdvice IDの数字）  
-- 現存の正規企業名がない → 設定したい新規正規企業名（英字・数字）
-
-> 数分ごとで必ず保存することを！！！
-
-最後、保存して閉じる。
-
-macOSのターミナル、またはWindowsのPowerShellに戻る  
-- 先閉じなかったら：`2`を入力、エンターキーを押す  
-- 閉じたら：`"python "`を入力 → NA_launcher.pyをドラッグ&ドロップ → エンターキー → 選択肢「2」を選ぶ（`2`を入力、エンターキー）
+## ランチャー起動手順
+1. ターミナル（またはPowerShell）で `python `（後ろにスペース）と入力  
+2. `NA_launcher.py` をドラッグ＆ドロップし、Enterキーを押す  
+3. 完了するまで待ちます
 
 ---
 
-# 大完成！！！結果を見よう！！！
+# 毎回の実行手順
+
+1. `NA_launcher.py` と対象の `.DOCX` ファイルを同じフォルダに置く  
+2. 仮想環境を有効化  
+   - macOS: `source NA_env/bin/activate`  
+   - Windows: `.\NA_env\Scripts\Activate.ps1`  
+3. ターミナルで `python `（後ろにスペース）と入力  
+4. `NA_launcher.py` をドラッグ＆ドロップしてEnter  
+5. **初回のみ**：キーコードを貼り付けてEnter  
+6. 「1」と入力してEnter  
+7. 完了後、`NA_mapping_todo.csv` を開き、F列（canonical_name）を記入  
+   - **参考**  
+     - Bad_rate：値が高いほど偽企業名の可能性↑  
+     - Advice：既存の正規名とマッチした候補  
+     - Advice ID：正規企業名のID  
+   - **入力ルール**  
+     - 偽企業名 → `0`  
+     - 既存の正規企業名 → ID（canonical_name表またはAdvice ID）  
+     - 新規の正規企業名 → 英数字  
+   - **数分ごとに必ず保存！**
+
+8. 保存してCSVを閉じる  
+9. ターミナルに戻り  
+   - プログラムがまだ動いていれば「2」と入力→Enter  
+   - すでに終了していれば、再度 `python ` → ドラッグ＆ドロップ → 「2」と入力→Enter
+
+---
+
+# 大完成！結果を見ましょう 🎉
 
 ---
 
 ## 📧 サポート
 
-ご不明点や助言がありましたら，下記の作成者までお気軽にお問い合わせください:
-
-**作者 / Author / 作成者：楊 天楽 (Shiame Yeung)**  
-**协助 / In cooperation with / 協力：李 宗昊 李 佳璇**
+ご不明点やご意見は以下までお問い合わせください：  
+作者：楊 天楽 (Shiame Yeung)  
+協力：李 宗昊、李 佳璇
 
 ---
 
-## 📧 技术支持
+## 📧 技術サポート
 
-如有任何疑问或改进建议，欢迎联系：
-
-**作者 / Author / 作成者：楊 天楽 (Shiame Yeung)**  
-**协助 / In cooperation with / 協力：李 宗昊 李 佳璇**
+疑問点や改善提案はこちらまで：  
+作者：楊 天楽 (Shiame Yeung)  
+協力：李 宗昊、李 佳璇
