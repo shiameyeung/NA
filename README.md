@@ -2,7 +2,7 @@
 ## NA_launcher.pyをダウンロードする。
 https://github.com/shiameyeung/NA/blob/main/NA_launcher.py
 
-（Windowsのみ、macOSは不要）以下リンクからダウンロード・インストール  
+## （Windowsのみ、macOSは不要）以下リンクからダウンロード・インストール  
 https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 ## Pythonを用意  
