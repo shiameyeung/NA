@@ -21,7 +21,8 @@ mkdir -p ~/NA_project && cd ~/NA_project
 ```
 **Windows（PowerShell）**  
 ```powershell
-mkdir %USERPROFILE%\NA_project && cd %USERPROFILE%\NA_project
+mkdir %USERPROFILE%\NA_project
+cd %USERPROFILE%\NA_project
 ```
 
 ## 環境設定２：仮想環境の作成
