@@ -670,31 +670,42 @@ def step2(mysql_url: str):
         f"result.csv を生成しました：全{len(df_final)}件",
         "📑"
     )
-
-       # ---- 生成 result_mapping_todo.csv ----
-        # ---- 生成 result_mapping_todo.csv ----
-    # 1) 为了能查到 canonical 的 id，先做一个 name→id 的字典
+    
+           # ---- 生成 result_mapping_todo.csv （空表安全 + 统计）----
+    # 1) name→id 字典（Advice 需要）
     canon_name2id = {row.canonical_name: row.id for row in df_canon.itertuples()}
-
+    
     todo_rows: List[Dict] = []
+    
+    # 统计：哪些被过滤掉
+    ban_hits = alias_hits = canon_hits = 0
+    
     for _, row in df_final.iterrows():
         for alias in (
             row[c].strip()
             for c in df_final.columns if c.startswith("company_")
             if row[c].strip()
         ):
-            # 已在三张表里出现过的 alias 不再进入 todo
-            if alias in ban_set or alias in alias_map or alias in canon_set:
+            alias_l = alias.lower()
+    
+            # 已在库中的，不进 todo（大小写无关）
+            if alias_l in ban_lower:
+                ban_hits += 1
                 continue
-    # ---------- ① 先看首词能不能直接命中 canonical ----------
-            first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0]
-            first_l   = first_tok.lower()
-            if first_l in canon_lower:                           # 数据库里就有
-                advice     = canon_lower2orig[first_l]           # ← 保留大小写原名
+            if alias_l in alias_lower:
+                alias_hits += 1
+                continue
+            if alias_l in canon_lower:
+                canon_hits += 1
+                continue
+    
+            # ---------- ① 首词命中 canonical ----------
+            first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0].lower()
+            if first_tok in canon_lower:
+                advice     = canon_lower2orig[first_tok]
                 adviced_id = canon_name2id.get(advice, "")
             else:
-                # ---------- 计算 Advice & Adviced_ID（Sentence-Transformer 版） ----------
-            # ② 再尝试 n-gram 完全匹配：从最长子串到最短子串
+                # ---------- ② n-gram 完全匹配 ----------
                 advice = adviced_id = ""
                 words = alias.split()
                 L = len(words)
@@ -704,68 +715,85 @@ def step2(mysql_url: str):
                         key = phrase.lower()
                         if key in canon_lower:
                             advice     = canon_lower2orig[key]
-                            adviced_id = canon_name2id[advice]
+                            adviced_id = canon_name2id.get(advice, "")
                             break
                     if advice:
                         break
-            # ③ 如果还没有，再用 Sentence-Transformer 做模糊匹配
-            if not advice and canon_vecs.size > 0:
-                alias_vec   = model_emb.encode([alias], normalize_embeddings=True)[0]
-                sims        = np.dot(canon_vecs, alias_vec)
-                best_idx    = int(np.argmax(sims))
-                best_score  = float(sims[best_idx])
-                if best_score >= 0.80:
-                    advice      = canon_names[best_idx]
-                    adviced_id  = canon_name2id.get(advice, "")
-                else:
-                    advice, adviced_id = "", ""
-
-            # ---------- 统一把这条写进去 ----------
-            todo_rows.append({
-                "Sentence":       row["Sentence"],
-                "Alias":          alias,
-                "Bad_Score":       calc_Bad_Score(alias),
-                "Advice":         advice,
-                "Adviced_ID":     adviced_id,
-                "Canonical_Name": "",
-                "Std_Result":     ""
-            })
-
-    # ① 组装 DataFrame
     
-    for r in todo_rows:
-        r["Alias_lower"] = r["Alias"].lower()
-    todo_df = (pd.DataFrame(todo_rows)
-            .drop_duplicates("Alias_lower")
-            .drop(columns="Alias_lower"))
-
-    # ② 分组排序：0=High(≥50) → 1=Mid(10-49) → 2=Low(<10)
-    todo_df["__grp"] = todo_df["Bad_Score"].apply(
-        lambda x: 0 if x >= 50 else (1 if x >= 10 else 2)
-    )
-    todo_df = (todo_df
-               .sort_values(["__grp", "Sentence"], ascending=[True, True])
-               .drop(columns="__grp"))
-
-    # ③ 固定列顺序（可选）
-    todo_df = todo_df[[
+            # ---------- ③ 语义相似度 ----------
+            if not advice and canon_vecs.size > 0:
+                alias_vec  = model_emb.encode([alias], normalize_embeddings=True)[0]
+                sims       = np.dot(canon_vecs, alias_vec)
+                best_idx   = int(np.argmax(sims))
+                best_score = float(sims[best_idx])
+                if best_score >= 0.80:
+                    advice     = canon_names[best_idx]
+                    adviced_id = canon_name2id.get(advice, "")
+    
+            todo_rows.append({
+                "Sentence":        row["Sentence"],
+                "Alias":           alias,
+                "Bad_Score":       calc_Bad_Score(alias),
+                "Advice":          advice or "",
+                "Adviced_ID":      adviced_id or "",
+                "Canonical_Name":  "",
+                "Std_Result":      ""
+            })
+    
+    # 2) 组装 DataFrame（空表安全）
+    todo_cols = [
         "Sentence", "Alias", "Bad_Score",
-        "Advice", "Adviced_ID",          # ← 新增
+        "Advice", "Adviced_ID",
         "Canonical_Name", "Std_Result"
-    ]]
-
-    # ④ 显示成百分比后写文件（排序已完成，安全）
-    todo_df["Bad_Score"] = todo_df["Bad_Score"].astype(int).astype(str)
-    todo_df['Sentence'] = todo_df['Sentence'].apply(
-    lambda s: "'" + s if isinstance(s, str) and s.startswith('=') else s
-    )
-    todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
-                   index=False, encoding="utf-8-sig")
-    cute_box(
-        f"已生成 result_mapping_todo.csv，共 {len(todo_df)} 条记录",
-        f"result_mapping_todo.csv を生成しました：全{len(todo_df)}件",
-        "📝"
-    )
+    ]
+    
+    if not todo_rows:
+        # —— 没有新的别名需要映射：写出只有表头的空表，并友好提示
+        todo_df = pd.DataFrame(columns=todo_cols)
+        todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
+                       index=False, encoding="utf-8-sig")
+    
+        cute_box(
+            "本批没有产生新的别名需要映射；已全部被规则识别或过滤。\n"
+            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}",
+            "今回のバッチでは新しい別名はありません。すべて既存データに一致／除外されました。\n"
+            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}",
+            "ℹ️"
+        )
+    else:
+        # —— 正常去重（按别名小写）
+        todo_df = pd.DataFrame(todo_rows)
+        todo_df["__alias_l"] = todo_df["Alias"].str.lower()
+        todo_df = todo_df.drop_duplicates("__alias_l").drop(columns="__alias_l")
+    
+        # 分组排序
+        todo_df["__grp"] = todo_df["Bad_Score"].apply(lambda x: 0 if x >= 50 else (1 if x >= 10 else 2))
+        todo_df = (todo_df
+                   .sort_values(["__grp", "Sentence"], ascending=[True, True])
+                   .drop(columns="__grp"))
+    
+        # 固定列顺序
+        for col in todo_cols:
+            if col not in todo_df.columns:
+                todo_df[col] = ""   # 兜底，保证列齐全
+        todo_df = todo_df[todo_cols]
+    
+        # 写文件
+        todo_df["Bad_Score"] = todo_df["Bad_Score"].astype(int).astype(str)
+        todo_df['Sentence'] = todo_df['Sentence'].apply(
+            lambda s: "'" + s if isinstance(s, str) and s.startswith('=') else s
+        )
+        todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
+                       index=False, encoding="utf-8-sig")
+    
+        cute_box(
+            f"已生成 result_mapping_todo.csv，共 {len(todo_df)} 条待处理别名。\n"
+            f"（ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}）",
+            f"result_mapping_todo.csv を作成：{len(todo_df)} 件の候補。\n"
+            f"（ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}）",
+            "📝"
+        )
+        
     cute_box(
     "Step-2 完成！请编辑 result_mapping_todo.csv 然后运行 Step-3",
     "Step-2 完了！result_mapping_todo.csv を編集してから Step-3 を実行してね",
@@ -808,114 +836,162 @@ def step3(mysql_url: str):
             "❗"
         )
         sys.exit(1)
-    # 读取
-    df_res  = pd.read_csv(res_f,  dtype=str).fillna("")
-    df_map  = pd.read_csv(todo_f, dtype=str).fillna("")
-    
+
+    # 读取现有文件
+    df_res = pd.read_csv(res_f,  dtype=str).fillna("")
+    df_map = pd.read_csv(todo_f, dtype=str).fillna("")
     if "Process_ID" not in df_map.columns:
         df_map["Process_ID"] = ""
 
     engine = create_engine(mysql_url)
     with engine.begin() as conn:
-
-        # 1) 拉取三表到内存
-        ban_set = {r[0] for r in conn.execute(text(
-            "SELECT alias FROM ban_list"
+        # 拉取三表到内存
+        ban_set    = {r[0] for r in conn.execute(text("SELECT alias FROM ban_list"))}
+        canon_map  = {r[0]: r[1] for r in conn.execute(text("SELECT id, canonical_name FROM company_canonical"))}
+        alias_map  = {r[0]: r[1] for r in conn.execute(text(
+            "SELECT a.alias, c.canonical_name FROM company_alias a "
+            "JOIN company_canonical c ON a.canonical_id=c.id"
         ))}
-        canon_map = {r[0]: r[1] for r in conn.execute(text("SELECT id, canonical_name FROM company_canonical"))}  # id→name
-        canon_rev = {v: k for k, v in canon_map.items()}  # name→id
-        alias_map = {r[0]: r[1] for r in conn.execute(text("""
-            SELECT a.alias, c.canonical_name
-            FROM company_alias a
-            JOIN company_canonical c ON a.canonical_id = c.id
-        """))}
-        # ===== 大小写无关镜像 =====
-        ban_lower       = {b.lower() for b in ban_set}                     # ban  → set
-        alias_lower_map = {a.lower(): canon for a, canon in alias_map.items()}  # alias→canonical
-        canon_lower2id  = {name.lower(): cid for cid, name in canon_map.items()} # canonical→id
-        # =========================================
+        # 无视大小写的镜像
+        ban_lower       = {b.lower() for b in ban_set}
+        alias_lower_map = {a.lower(): c for a, c in alias_map.items()}
+        canon_lower2id  = {name.lower(): cid for cid, name in canon_map.items()}
 
-        # 2) 逐行处理 mapping
-        for idx, row in df_map.iterrows():
-            alias_raw   = row["Alias"].strip()
-            alias_raw_l = alias_raw.lower()        # ← 小写版
+    # —— 处理 todo 映射 ——  
+    for idx, row in df_map.iterrows():
+        alias_raw   = row["Alias"].strip()
+        alias_raw_l = alias_raw.lower()
+        canon_input = row["Canonical_Name"].strip()
+        if not canon_input:
+            df_map.at[idx, "Std_Result"] = "No input"
+            continue
 
-            canon_input   = row["Canonical_Name"].strip()
-            canon_input_l = canon_input.lower()    # ← 小写版
-
-            if not canon_input:                       # —— 空白
-                df_map.at[idx, "Std_Result"] = "No input"
-                continue
-
-           # === ① Ban（输入 0） ===
-            if canon_input == "0":
-                if alias_raw_l not in ban_lower:          # 只在第一次才写库＋打批次号
+        # ① Ban（输入 0）
+        if canon_input == "0":
+            if alias_raw_l not in ban_lower:
+                with engine.begin() as conn:
                     conn.execute(text(
-                        "INSERT INTO ban_list(alias, process_id) "
-                        "VALUES (:a, :pid)"
+                        "INSERT INTO ban_list(alias, process_id) VALUES (:a, :pid)"
                     ), {"a": alias_raw, "pid": process_id})
-                    ban_set.add(alias_raw)            # 别忘了同步到本地集合
-                    df_map.at[idx, "Process_ID"] = f"'{process_id}"
-                # 已存在就什么都不更改批次号
-                df_map.at[idx, "Std_Result"] = "Banned"
-                continue
-
-            # === ② 用户输入数字 → 视为 canonical_id ===
-            if canon_input.isdigit():
-                cid = int(canon_input)
-                if cid not in canon_map:              # id 不存在
-                    df_map.at[idx, "Std_Result"] = "Bad ID"
-                    continue
-                canon_name = canon_map[cid]           # ← id → name
-                canon_id   = cid
-            else:
-                canon_name = canon_input
-                if canon_input_l not in canon_lower2id:          # ← 用小写判断是否已存在
-                    res = conn.execute(text(
-                        "INSERT INTO company_canonical(canonical_name, process_id) "
-                        "VALUES (:c, :pid)"
-                    ), {"c": canon_name, "pid": process_id})
-
-                    canon_id = res.lastrowid
-                    # —— 同步三张镜像/字典 —— 
-                    canon_map[canon_id]          = canon_name
-                    canon_lower2id[canon_input_l] = canon_id
-
-                    df_map.at[idx, "Process_ID"] = f"'{process_id}" 
-                else:
-                    canon_id   = canon_lower2id[canon_input_l]
-                    canon_name = canon_map[canon_id]
-
-            # === ③ 写 alias（已存在：大小写也要忽略） ===
-            if alias_raw_l in alias_lower_map or alias_raw_l in canon_lower2id:   # ✅ 新增后半句
-                df_map.at[idx, "Std_Result"] = "Exists"
-                continue
-
-            conn.execute(text(
-                "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) VALUES (:a, :cid, :pid)"
-            ), {"a": alias_raw, "cid": canon_id, "pid": process_id})
-
-            # —— 成功后同步两张镜像 ——  
-            alias_map[alias_raw]         = canon_name        # 原字典（保留大小写）
-            alias_lower_map[alias_raw_l] = canon_name        # 小写镜像，供之后判断
-
-            # —— 标记结果 & 批次号 ——  
-            df_map.at[idx, "Std_Result"] = "Added"
+                ban_lower.add(alias_raw_l)
+            df_map.at[idx, "Std_Result"]   = "Banned"
             df_map.at[idx, "Process_ID"] = f"'{process_id}"
-    
-    df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
+            continue
+
+        # ② 数字 → 视为 existing canonical_id
+        if canon_input.isdigit():
+            cid = int(canon_input)
+            if cid not in canon_map:
+                df_map.at[idx, "Std_Result"] = "Bad ID"
+                continue
+            canon_name = canon_map[cid]
+        else:
+            # 新 canonical
+            ci_l = canon_input.lower()
+            if ci_l not in canon_lower2id:
+                with engine.begin() as conn:
+                    res = conn.execute(text(
+                        "INSERT INTO company_canonical(canonical_name, process_id) VALUES (:c, :pid)"
+                    ), {"c": canon_input, "pid": process_id})
+                new_id = res.lastrowid
+                canon_map[new_id]        = canon_input
+                canon_lower2id[ci_l] = new_id
+                df_map.at[idx, "Process_ID"] = f"'{process_id}"
+                canon_name = canon_input
+            else:
+                canon_name = canon_map[canon_lower2id[ci_l]]
+        # ③ 写 alias（忽略大小写已存在）
+        if alias_raw_l in alias_lower_map or alias_raw_l in canon_lower2id:
+            df_map.at[idx, "Std_Result"] = "Exists"
+            continue
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) "
+                "VALUES (:a, :cid, :pid)"
+            ), {"a": alias_raw, "cid": canon_lower2id[canon_name.lower()], "pid": process_id})
+        alias_lower_map[alias_raw_l] = canon_name
+        df_map.at[idx, "Std_Result"]   = "Added"
+        df_map.at[idx, "Process_ID"] = f"'{process_id}"
+
+    # 先写回 todo，再做回写 result.csv
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
-    
+
+    # ====== 将最新映射应用回 result.csv ======
+    # 重新拉取 ban/alias/canonical 准备映射
+    with engine.begin() as conn2:
+        ban_set2    = {r[0] for r in conn2.execute(text("SELECT alias FROM ban_list"))}
+        rows2       = conn2.execute(text(
+            "SELECT a.alias, c.canonical_name FROM company_alias a "
+            "JOIN company_canonical c ON a.canonical_id=c.id"
+        ))
+        alias_map2  = {a: c for a, c in rows2}
+        canon_set2  = {r[0] for r in conn2.execute(text("SELECT canonical_name FROM company_canonical"))}
+
+    ban_lower2        = {b.lower() for b in ban_set2}
+    alias_lower_map2  = {a.lower(): c for a, c in alias_map2.items()}
+    canon_lower2orig2 = {c.lower(): c for c in canon_set2}
+
+    comp_cols = [c for c in df_res.columns if c.startswith("company_")]
+
+    def _norm_key(s: str) -> str:
+        return re.sub(r"[^A-Za-z0-9]", "", str(s)).lower()
+
+    changed_cells = 0
+    for ridx in df_res.index:
+        # 读出原值
+        orig = df_res.loc[ridx, comp_cols].astype(str).tolist()
+        vals_in = [v.strip() for v in orig if v.strip()]
+        vals_out = []
+        for nm in vals_in:
+            key = nm.lower()
+            if key in ban_lower2:
+                continue
+            if key in alias_lower_map2:
+                nm = alias_lower_map2[key]
+                changed_cells += 1
+                key = nm.lower()
+            elif key in canon_lower2orig2:
+                corrected = canon_lower2orig2[key]
+                if corrected != nm:
+                    changed_cells += 1
+                nm = corrected
+            vals_out.append(nm)
+        # 同根去重 + 左移
+        cleaned, seen = [], set()
+        for nm in sorted(vals_out, key=len, reverse=True):
+            k = _norm_key(nm)
+            if any(k in kk or kk in k for kk in seen):
+                continue
+            cleaned.append(nm)
+            seen.add(k)
+        # 回写
+        for i, col in enumerate(comp_cols):
+            new_val = cleaned[i] if i < len(cleaned) else ""
+            if str(df_res.at[ridx, col]) != new_val:
+                changed_cells += 1
+            df_res.at[ridx, col] = new_val
+
+    # 再清一次列内重复
+    df_res = dedup_company_cols(df_res)
+
+    cute_box(
+        f"已将最新映射应用到 result.csv（变更单元格约 {changed_cells} 个）",
+        f"最新のマッピングを result.csv に適用しました（変更セル数 約 {changed_cells}）",
+        "🛠️"
+    )
+
+    # 最后保存
+    df_res.to_csv(res_f, index=False, encoding="utf-8-sig")
+
     cute_box(
         f"Step-3 完成，处理 {len(df_map)} 条映射，result.csv 已更新",
         f"Step-3 完了：{len(df_map)}件 処理済み，result.csv 更新完了",
         "🚀"
     )
-    
     cute_box(
-      f"本批次 Process ID：{process_id}",
-      f"今回の Process ID：{process_id}",
-      "📌"
+        f"本批次 Process ID：{process_id}",
+        f"今回の Process ID：{process_id}",
+        "📌"
     )
                
             
