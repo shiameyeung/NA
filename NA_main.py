@@ -684,69 +684,72 @@ def step2(mysql_url: str):
     comp_cols = [c for c in df_final.columns if c.startswith("company_")]
 
     for _, row in df_final.iterrows():
-        # 取出该行所有非空的疑似企业名
-        names = [row[c].strip() for c in comp_cols if row[c].strip()]
-
-        # 规则：只有一个疑似企业名的行，不进 mapping 表
-        if len(names) == 1:
-            single_suspect_skipped += 1
-            continue
-
-        for alias in names:
-            alias_l = alias.lower()
-
-            # 已在库中的，不进 todo（大小写无关）
-            if alias_l in ban_lower:
-                ban_hits += 1
+            # 取出该行所有非空疑似企业名
+            names = [row[c].strip() for c in comp_cols if row[c].strip()]
+    
+            # 先做 ban/alias/canonical 过滤 —— 只保留“未知”的待映射候选
+            unknowns: List[str] = []
+            for alias in names:
+                alias_l = alias.lower()
+                if alias_l in ban_lower:
+                    ban_hits += 1
+                    continue
+                if alias_l in alias_lower:
+                    alias_hits += 1
+                    continue
+                if alias_l in canon_lower:
+                    canon_hits += 1
+                    continue
+                unknowns.append(alias)
+    
+            # 只有当“过滤后未知别名数 ≥ 2”时，整行才进入 mapping_todo
+            if len(unknowns) < 2:
+                single_suspect_skipped += 1
                 continue
-            if alias_l in alias_lower:
-                alias_hits += 1
-                continue
-            if alias_l in canon_lower:
-                canon_hits += 1
-                continue
-
-            # ---------- ① 首词命中 canonical ----------
-            first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0].lower()
-            if first_tok in canon_lower:
-                advice     = canon_lower2orig[first_tok]
-                adviced_id = canon_name2id.get(advice, "")
-            else:
-                # ---------- ② n-gram 完全匹配 ----------
-                advice = adviced_id = ""
-                words = alias.split()
-                L = len(words)
-                for size in range(L, 0, -1):
-                    for i in range(0, L - size + 1):
-                        phrase = " ".join(words[i:i+size])
-                        key = phrase.lower()
-                        if key in canon_lower:
-                            advice     = canon_lower2orig[key]
-                            adviced_id = canon_name2id.get(advice, "")
-                            break
-                    if advice:
-                        break
-
-            # ---------- ③ 语义相似度 ----------
-            if not advice and canon_vecs.size > 0:
-                alias_vec  = model_emb.encode([alias], normalize_embeddings=True)[0]
-                sims       = np.dot(canon_vecs, alias_vec)
-                best_idx   = int(np.argmax(sims))
-                best_score = float(sims[best_idx])
-                if best_score >= 0.80:
-                    advice     = canon_names[best_idx]
+    
+            # 对 unknowns 中的每个别名生成建议
+            for alias in unknowns:
+                # --- 首词命中 canonical ---
+                first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0].lower()
+                if first_tok in canon_lower:
+                    advice     = canon_lower2orig[first_tok]
                     adviced_id = canon_name2id.get(advice, "")
-
-            # ---------- 写入 todo ----------
-            todo_rows.append({
-                "Sentence":        row["Sentence"],
-                "Alias":           alias,
-                "Bad_Score":       calc_Bad_Score(alias),
-                "Advice":          advice or "",
-                "Adviced_ID":      adviced_id or "",
-                "Canonical_Name":  "",
-                "Std_Result":      ""
-            })
+                else:
+                    # --- n-gram 完全匹配 ---
+                    advice = adviced_id = ""
+                    words = alias.split()
+                    L = len(words)
+                    for size in range(L, 0, -1):
+                        for i in range(0, L - size + 1):
+                            phrase = " ".join(words[i:i+size])
+                            key = phrase.lower()
+                            if key in canon_lower:
+                                advice     = canon_lower2orig[key]
+                                adviced_id = canon_name2id.get(advice, "")
+                                break
+                        if advice:
+                            break
+    
+                # --- 语义相似度（可选） ---
+                if not advice and canon_vecs.size > 0:
+                    alias_vec  = model_emb.encode([alias], normalize_embeddings=True)[0]
+                    sims       = np.dot(canon_vecs, alias_vec)
+                    best_idx   = int(np.argmax(sims))
+                    best_score = float(sims[best_idx])
+                    if best_score >= 0.80:
+                        advice     = canon_names[best_idx]
+                        adviced_id = canon_name2id.get(advice, "")
+    
+                # 写入 todo
+                todo_rows.append({
+                    "Sentence":        row["Sentence"],
+                    "Alias":           alias,
+                    "Bad_Score":       calc_Bad_Score(alias),
+                    "Advice":          advice or "",
+                    "Adviced_ID":      adviced_id or "",
+                    "Canonical_Name":  "",
+                    "Std_Result":      ""
+                })
 
     # 2) 组装 DataFrame（空表安全）
     todo_cols = [
