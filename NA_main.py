@@ -671,23 +671,30 @@ def step2(mysql_url: str):
         "📑"
     )
     
-           # ---- 生成 result_mapping_todo.csv （空表安全 + 统计）----
+    # ---- 生成 result_mapping_todo.csv （空表安全 + 统计）----
     # 1) name→id 字典（Advice 需要）
     canon_name2id = {row.canonical_name: row.id for row in df_canon.itertuples()}
-    
+
     todo_rows: List[Dict] = []
-    
-    # 统计：哪些被过滤掉
+
+    # 统计：哪些被过滤/跳过
     ban_hits = alias_hits = canon_hits = 0
-    
+    single_suspect_skipped = 0
+
+    comp_cols = [c for c in df_final.columns if c.startswith("company_")]
+
     for _, row in df_final.iterrows():
-        for alias in (
-            row[c].strip()
-            for c in df_final.columns if c.startswith("company_")
-            if row[c].strip()
-        ):
+        # 取出该行所有非空的疑似企业名
+        names = [row[c].strip() for c in comp_cols if row[c].strip()]
+
+        # 规则：只有一个疑似企业名的行，不进 mapping 表
+        if len(names) == 1:
+            single_suspect_skipped += 1
+            continue
+
+        for alias in names:
             alias_l = alias.lower()
-    
+
             # 已在库中的，不进 todo（大小写无关）
             if alias_l in ban_lower:
                 ban_hits += 1
@@ -698,7 +705,7 @@ def step2(mysql_url: str):
             if alias_l in canon_lower:
                 canon_hits += 1
                 continue
-    
+
             # ---------- ① 首词命中 canonical ----------
             first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0].lower()
             if first_tok in canon_lower:
@@ -719,7 +726,7 @@ def step2(mysql_url: str):
                             break
                     if advice:
                         break
-    
+
             # ---------- ③ 语义相似度 ----------
             if not advice and canon_vecs.size > 0:
                 alias_vec  = model_emb.encode([alias], normalize_embeddings=True)[0]
@@ -729,7 +736,8 @@ def step2(mysql_url: str):
                 if best_score >= 0.80:
                     advice     = canon_names[best_idx]
                     adviced_id = canon_name2id.get(advice, "")
-    
+
+            # ---------- 写入 todo ----------
             todo_rows.append({
                 "Sentence":        row["Sentence"],
                 "Alias":           alias,
@@ -739,25 +747,25 @@ def step2(mysql_url: str):
                 "Canonical_Name":  "",
                 "Std_Result":      ""
             })
-    
+
     # 2) 组装 DataFrame（空表安全）
     todo_cols = [
         "Sentence", "Alias", "Bad_Score",
         "Advice", "Adviced_ID",
         "Canonical_Name", "Std_Result"
     ]
-    
+
     if not todo_rows:
         # —— 没有新的别名需要映射：写出只有表头的空表，并友好提示
         todo_df = pd.DataFrame(columns=todo_cols)
         todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
                        index=False, encoding="utf-8-sig")
-    
+
         cute_box(
-            "本批没有产生新的别名需要映射；已全部被规则识别或过滤。\n"
-            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}",
-            "今回のバッチでは新しい別名はありません。すべて既存データに一致／除外されました。\n"
-            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}",
+            "本批没有产生新的别名需要映射；已被规则识别/过滤，或因“仅 1 个疑似企业名”规则而跳过。\n"
+            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，单一候选跳过：{single_suspect_skipped}",
+            "今回のバッチでは新しい別名はありません。既存データに一致／除外、または「候補が1件のみ」規則でスキップされました。\n"
+            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／単一候補スキップ：{single_suspect_skipped}",
             "ℹ️"
         )
     else:
@@ -765,19 +773,19 @@ def step2(mysql_url: str):
         todo_df = pd.DataFrame(todo_rows)
         todo_df["__alias_l"] = todo_df["Alias"].str.lower()
         todo_df = todo_df.drop_duplicates("__alias_l").drop(columns="__alias_l")
-    
+
         # 分组排序
         todo_df["__grp"] = todo_df["Bad_Score"].apply(lambda x: 0 if x >= 50 else (1 if x >= 10 else 2))
         todo_df = (todo_df
                    .sort_values(["__grp", "Sentence"], ascending=[True, True])
                    .drop(columns="__grp"))
-    
+
         # 固定列顺序
         for col in todo_cols:
             if col not in todo_df.columns:
                 todo_df[col] = ""   # 兜底，保证列齐全
         todo_df = todo_df[todo_cols]
-    
+
         # 写文件
         todo_df["Bad_Score"] = todo_df["Bad_Score"].astype(int).astype(str)
         todo_df['Sentence'] = todo_df['Sentence'].apply(
@@ -785,12 +793,12 @@ def step2(mysql_url: str):
         )
         todo_df.to_csv(BASE_DIR / "result_mapping_todo.csv",
                        index=False, encoding="utf-8-sig")
-    
+
         cute_box(
             f"已生成 result_mapping_todo.csv，共 {len(todo_df)} 条待处理别名。\n"
-            f"（ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}）",
+            f"（ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，单一候选跳过：{single_suspect_skipped}）",
             f"result_mapping_todo.csv を作成：{len(todo_df)} 件の候補。\n"
-            f"（ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}）",
+            f"（ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／単一候補スキップ：{single_suspect_skipped}）",
             "📝"
         )
         
