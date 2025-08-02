@@ -766,9 +766,9 @@ def step2(mysql_url: str):
 
         cute_box(
             "本批没有产生新的别名需要映射；已被规则识别/过滤，或因“仅 1 个疑似企业名”规则而跳过。\n"
-            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，单一候选跳过：{single_suspect_skipped}",
+            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，同行公司不足跳过：{rows_skipped_not_enough_companies}",
             "今回のバッチでは新しい別名はありません。既存データに一致／除外、または「候補が1件のみ」規則でスキップされました。\n"
-            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／単一候補スキップ：{single_suspect_skipped}",
+            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／同一行の企業数不足スキップ：{rows_skipped_not_enough_companies}",
             "ℹ️"
         )
     else:
