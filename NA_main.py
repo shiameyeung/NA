@@ -687,12 +687,7 @@ def step2(mysql_url: str):
         # 取出该行所有非空企业名（已做过ban/alias/canonical一次清洗与同根去重）
         names = [row[c].strip() for c in comp_cols if row[c].strip()]
 
-        # ✅ 行级门槛：无论是否已知，只要同行公司总数 < 2，就整行跳过
-        if len(names) < 2:
-            rows_skipped_not_enough_companies += 1
-            continue
-
-        # 只把“未知别名”写入 todo（已知的不需要人工映射）
+        # —— 分类统计（先更新 ban/alias/canonical 计数，再收集 unknowns）
         unknowns: List[str] = []
         for alias in names:
             alias_l = alias.lower()
@@ -706,6 +701,10 @@ def step2(mysql_url: str):
                 canon_hits += 1
                 continue
             unknowns.append(alias)
+        # ✅ 行级门槛：同行公司总数（names）< 2 → 不入 todo，但上面的统计已计入
+        if len(names) < 2:
+            rows_skipped_not_enough_companies += 1
+            continue
 
         # 该行达到“有2+家公司”的门槛，即使 unknowns 只有1个或更多，都进入 todo
         for alias in unknowns:
@@ -766,9 +765,9 @@ def step2(mysql_url: str):
 
         cute_box(
             "本批没有产生新的别名需要映射；已被规则识别/过滤，或因“仅 1 个疑似企业名”规则而跳过。\n"
-            f"ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，同行公司不足跳过：{rows_skipped_not_enough_companies}",
+            f"（ban 命中：{ban_hits}，已有 alias：{alias_hits}，已有 canonical：{canon_hits}，同行公司不足跳过：{rows_skipped_not_enough_companies}）",
             "今回のバッチでは新しい別名はありません。既存データに一致／除外、または「候補が1件のみ」規則でスキップされました。\n"
-            f"ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／同一行の企業数不足スキップ：{rows_skipped_not_enough_companies}",
+            f"（ban 一致：{ban_hits}／既存エイリアス：{alias_hits}／既存カノニカル：{canon_hits}／同一行の企業数不足スキップ：{rows_skipped_not_enough_companies}）",
             "ℹ️"
         )
     else:
