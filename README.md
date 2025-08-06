@@ -39,7 +39,7 @@ python -m venv NA_env
   ```
 - **Windows：**
   ```powershell
-  .\NA_env\Scripts\Activate.ps1
+  %USERPROFILE%\NA_project> NA_env\Scripts\activate
   ```
 
 ## 環境設定４：必要パッケージのインストール
