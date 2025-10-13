@@ -325,7 +325,7 @@ def ask_mysql_url() -> str:
     else:
         key = input("请输入秘钥/キーを入力してください：user:pass@host\n>>>>>> ").strip()
         key_file.write_text(key)                     # 缓存下次用
-    return f"mysql+pymysql://{key}.mysql.rds.aliyuncs.com:3306/na_data?charset=utf8mb4"
+    return f"mysql+pymysql://{key}:3306/na_data?charset=utf8mb4" 
 
 def choose() -> str:
     # ── 1. 选项框 ───────────────────────────────────────────
