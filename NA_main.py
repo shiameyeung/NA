@@ -395,16 +395,43 @@ def extract_sentences(path: Path) -> List[str]:
 
 def extract_index_titles(paragraphs):
     paras_text = [p.text.strip() for p in paragraphs]
-    m = re.search(r'Documents?\s*\(\s*(\d+)\s*\)', '\n'.join(paras_text), re.I)
+    
+    # 1. 尝试获取总篇数
+    m = re.search(r'Documents?\s*\(\s*(\d+)\s*\)', '\n'.join(paras_text[:50]), re.I)
     if not m: return []
-    total = int(m.group(1)); pat = re.compile(r'^(\d+)\.\s+(.*)$'); seen, titles = set(), []
-    for line in paras_text:
+    total = int(m.group(1))
+    
+    pat = re.compile(r'^(\d+)\.\s+(.*)$')
+    seen = set()
+    titles = []
+    
+    for i, line in enumerate(paras_text):
         m2 = pat.match(line)
         if m2:
-            raw = m2.group(2).strip(); norm = _normalize(raw)
+            # === 【核心修复】验证机制 ===
+            # 真正的目录标题，后面 6 行内一定有 "Client/Matter"
+            is_valid_toc = False
+            for offset in range(1, 7): 
+                if i + offset >= len(paras_text): break
+                next_line = paras_text[i + offset].lower()
+                if "client/matter" in next_line or "search terms" in next_line:
+                    is_valid_toc = True
+                    break
+            
+            # 如果后面没有元数据，说明这是正文里的普通列表（如 "3. REVENUE"），跳过！
+            if not is_valid_toc:
+                continue 
+            
+            # === 验证通过 ===
+            raw = m2.group(2).strip()
+            norm = _normalize(raw)
+            
             if norm in seen: continue
-            seen.add(norm); titles.append((int(m2.group(1)), raw, norm))
+            seen.add(norm)
+            titles.append((int(m2.group(1)), raw, norm))
+            
             if len(titles) >= total: break
+                
     return sorted(titles, key=lambda x: x[0])
 
 def extract_sentences_by_titles(filepath: str) -> List[Dict]:
@@ -413,37 +440,31 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
     
     if index_titles:
         paras_norm = [_normalize(p.text) for p in paras]
-        # 记录上一次找到的文章结束位置，优化搜索效率
+        # 记录上一次找到的文章结束位置，避免回头重找
         last_article_end_idx = 0
 
         for i_title, (doc_idx, title_raw, title_norm) in enumerate(index_titles):
             match_idx = -1
             
-            # --- 【关键修改】智能查找标题位置 ---
-            # 我们在全文中寻找该标题的所有出现位置
-            # 1. 从 last_article_end_idx 开始找，避免回溯
-            # 2. 排除掉后面紧跟 "Client/Matter" 的（那是目录索引）
-            
-            # 找到所有匹配该标题的行号（从上次结束位置开始搜）
+            # --- 【核心修复】智能定位正文标题 ---
+            # 从上次结束的地方开始搜，找到所有匹配的标题行
             candidates = [i for i, n in enumerate(paras_norm) 
                           if i >= last_article_end_idx and n == title_norm]
             
             for idx in candidates:
-                # 检查下一行是否是 "Client/Matter"
+                # 检查下一行：如果是 Client/Matter，说明这是目录，不是正文，跳过！
                 if idx + 1 < len(paras):
                     next_line_text = paras[idx+1].text.strip().lower()
-                    if next_line_text.startswith("client/matter"):
-                        continue #这是目录，跳过！
+                    if next_line_text.startswith("client/matter") or next_line_text.startswith("search terms"):
+                        continue 
                 
-                # 如果通过了检查，这就是真正的文章标题
+                # 找到了真正的正文标题
                 match_idx = idx
                 break
             
-            # 如果实在找不到（比如格式很奇怪），就勉强用第一个找到的（兜底）
-            if match_idx == -1 and candidates:
-                match_idx = candidates[0]
-            elif match_idx == -1:
-                continue # 彻底找不到，跳过此文
+            # 兜底：如果实在找不到，就用第一个找到的（极少情况）
+            if match_idx == -1 and candidates: match_idx = candidates[0]
+            elif match_idx == -1: continue # 彻底找不到，跳过
 
             # ----------------------------------
 
@@ -452,40 +473,29 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
             publisher = paras[pub_idx].text.strip() if pub_idx < len(paras) else ""
             
             # 2. 寻找 Body 的开始位置
-            # 限制搜索范围：从标题后开始
-            # 如果能找到下一个文档的标题，就以此为界；否则搜到文件底
+            # 限制搜索范围：从标题后开始，防止搜到下一篇文章里去
             search_end_limit = len(paras)
+            # 尝试寻找下一篇文章的标题作为边界
             if i_title + 1 < len(index_titles):
                 next_title_norm = index_titles[i_title+1][2]
-                # 尝试找下一个标题的位置（同样要跳过目录里的）
-                # 这里简单处理：只要在当前 match_idx 之后很远的地方出现即可
+                # 简单启发式：在当前位置20行后找下一个标题
                 try:
-                    # 在当前位置 50 行之后找下一个标题，通常正文不会特别短
-                    # 这是一个启发式搜索，避免混淆
                     next_candidates = [i for i, n in enumerate(paras_norm) 
-                                       if i > match_idx + 10 and n == next_title_norm]
-                    if next_candidates:
-                         # 取第一个“像正文”的下一个标题（同样排除Client/Matter）
-                         for nc in next_candidates:
-                             if nc + 1 < len(paras) and not paras[nc+1].text.strip().lower().startswith("client/matter"):
-                                 search_end_limit = nc
-                                 break
-                except Exception:
-                    pass
+                                       if i > match_idx + 20 and n == next_title_norm]
+                    if next_candidates: search_end_limit = next_candidates[0]
+                except Exception: pass
 
             # 在范围内找 "Body"
             body_start = next((i+1 for i in range(match_idx+1, search_end_limit) if paras[i].text.strip().lower() == "body"), None)
             
-            # 如果没找到 "Body" 标记，就默认标题后第 10 行左右开始（跳过元数据），或者直接从出版社后开始
-            # Factiva 的格式通常 Date 在 Publisher 下面几行
+            # 如果没找到 "Body"，默认标题后第5行开始（跳过元数据）
             if body_start is None: 
-                body_start = pub_idx + 5 # 稍微往下跳过日期等信息
+                body_start = pub_idx + 5 
                 if body_start >= len(paras): body_start = pub_idx + 1
             
-            # 3. 提取日期 (在 Title 和 Body 之间寻找)
+            # 3. 【新增】提取日期 (在 Title 和 Body 之间寻找)
             news_date = ""
-            # 扫描范围：从 match_idx 到 body_start
-            for k in range(match_idx, body_start):
+            for k in range(pub_idx, body_start):
                 if k >= len(paras): break
                 txt = paras[k].text.strip()
                 m = DATE_FINDER.search(txt)
@@ -493,17 +503,15 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
                     news_date = m.group(0) 
                     break
             
-            # 4. 提取正文内容
-            # 截止到 Notes, Classification 或下一个标题前
+            # 4. 提取正文内容 (截止到 Notes 或 Classification)
             body_end = len(paras)
             for i in range(body_start, search_end_limit):
                 t_low = paras[i].text.strip().lower()
-                if t_low in ("notes", "classification", "(end) dow jones newswires"):
+                if t_low.startswith("notes") or t_low.startswith("classification") or "(end) dow jones" in t_low:
                     body_end = i
                     break
             
-            # 更新下一次搜索的起点
-            last_article_end_idx = body_end
+            last_article_end_idx = body_end # 更新下次搜索起点
 
             article = " ".join(clean_text(paras[i].text) for i in range(body_start, body_end))
             
