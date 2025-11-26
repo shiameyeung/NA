@@ -199,6 +199,11 @@ KEYWORD_ROOTS = [
     'takeover','accession','procure','suppl','conjoint','support','adjust',
     'adjunct','patronag','subsid','affiliat','endors'
 ]
+# 匹配: "April 28, 2025" 或 "21 May 2025"
+DATE_FINDER = re.compile(
+    r'\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4})\b',
+    re.IGNORECASE
+)
 # ---------------- Bad-Rate 规则 ----------------
 ORG_SUFFIX  = re.compile(
     r'\b(Inc\.?|Corp\.?|Corporation|Ltd\.?|LLC|PLC|AG|NV|SA|GmbH|S\.p\.A|Co\.?|Company|'
@@ -405,24 +410,79 @@ def extract_index_titles(paragraphs):
 def extract_sentences_by_titles(filepath: str) -> List[Dict]:
     doc = Document(filepath); paras = doc.paragraphs
     index_titles = extract_index_titles(paras); recs = []
+    
     if index_titles:
         paras_norm = [_normalize(p.text) for p in paras]
-        for _, title_raw, title_norm in index_titles:
-            try: match_idx = next(i for i, n in enumerate(paras_norm) if n == title_norm)
-            except StopIteration: continue
-            pub_idx = match_idx + 1; publisher = paras[pub_idx].text.strip() if pub_idx < len(paras) else ""
-            body_start = next((i+1 for i in range(match_idx+1,len(paras)) if paras[i].text.strip().lower()=="body"), None)
-            if body_start is None: body_start = pub_idx + 1
-            body_end = next((i for i in range(body_start, len(paras)) if paras[i].text.strip().lower() in ("notes","classification")), len(paras))
+        for i_title, (doc_idx, title_raw, title_norm) in enumerate(index_titles):
+            try: 
+                match_idx = next(i for i, n in enumerate(paras_norm) if n == title_norm)
+            except StopIteration: 
+                continue
+            
+            # 1. 提取出版社 (标题下一行)
+            pub_idx = match_idx + 1
+            publisher = paras[pub_idx].text.strip() if pub_idx < len(paras) else ""
+            
+            # 2. 寻找 Body 的开始位置
+            # 限制搜索范围：从标题后开始，直到下一个文档的标题出现（如果有）或者文件结束
+            search_end_limit = len(paras)
+            # 如果不是最后一个文档，试着找到下一个文档标题的位置作为边界（防止搜过界）
+            if i_title + 1 < len(index_titles):
+                next_title_norm = index_titles[i_title+1][2]
+                try:
+                    next_match_idx = next(i for i, n in enumerate(paras_norm) if i > match_idx and n == next_title_norm)
+                    search_end_limit = next_match_idx
+                except StopIteration:
+                    pass
+
+            body_start = next((i+1 for i in range(match_idx+1, search_end_limit) if paras[i].text.strip().lower() == "body"), None)
+            
+            # 如果没找到 "Body" 标记，就默认标题后就是正文
+            if body_start is None: 
+                body_start = pub_idx + 1
+            
+            # 3. 【新增】提取日期 (在 Title 和 Body 之间寻找)
+            news_date = ""
+            # 扫描范围：从 publisher 之后 到 body_start 之前
+            for k in range(pub_idx, body_start):
+                txt = paras[k].text.strip()
+                m = DATE_FINDER.search(txt)
+                if m:
+                    news_date = m.group(0) # 抓取到的日期字符串
+                    break
+            
+            # 4. 提取正文内容
+            body_end = next((i for i in range(body_start, len(paras)) if paras[i].text.strip().lower() in ("notes", "classification")), len(paras))
             article = " ".join(clean_text(paras[i].text) for i in range(body_start, body_end))
+            
+            # 5. 拆分句子并保存
             for sent in [s.strip() for s in re.split(r"\.\s*", article) if len(s.strip())>=5]:
                 hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
-                recs.append({"Title":title_raw,"Publisher":publisher,"Country":"","Sentence":sent,"Hit_Count":len(hits),"Matched_Keywords":"; ".join(hits)})
+                recs.append({
+                    "Title": title_raw,
+                    "Publisher": publisher,
+                    "Date": news_date,  # <--- 存入日期
+                    "Country": "",
+                    "Sentence": sent,
+                    "Hit_Count": len(hits),
+                    "Matched_Keywords": "; ".join(hits)
+                })
+        
         if recs: return recs
-    # 无索引
+
+    # 无索引的情况 (fallback)
+    # 这种情况下很难定位准确日期，暂时留空或按需修改
     for sent in extract_sentences(Path(filepath)):
-        hits=[k for k in KEYWORD_ROOTS if k in sent.lower()]
-        recs.append({"Title":"","Publisher":"","Country":"","Sentence":sent,"Hit_Count":len(hits),"Matched_Keywords":"; ".join(hits)})
+        hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
+        recs.append({
+            "Title": "", 
+            "Publisher": "", 
+            "Date": "",       # <--- 补位
+            "Country": "", 
+            "Sentence": sent, 
+            "Hit_Count": len(hits), 
+            "Matched_Keywords": "; ".join(hits)
+        })
     return recs
 
 def step1():
@@ -654,7 +714,7 @@ def step2(mysql_url: str):
     # === ④ 继续原流程写 result.csv（下方原代码保持不变） ===
 
     # ---- 组装精简版 result.csv ----
-    meta_cols = ["Tier_1", "Tier_2", "Filename",
+    meta_cols = ["Tier_1", "Tier_2", "Filename", "Date",
                  "Title", "Publisher", "Sentence",
                  "Hit_Count", "Matched_Keywords"]
 
