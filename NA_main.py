@@ -273,48 +273,57 @@ def _lower_ratio(text: str) -> float:
     w = text.split()
     return sum(t[0].islower() for t in w) / len(w) if w else 0
 
+# --- 【新增】预定义一些“非公司”的垃圾概念向量 ---
+# 这些词代表了我们想过滤掉的“垃圾类型”
+NOISE_CONCEPTS = [
+    "financial report results",   # 财报类
+    "fiscal year quarter",        # 时间类
+    "forward looking statements", # 法律声明类
+    "January February March",     # 月份
+    "global market growth",       # 泛指市场
+    "conference call webcast",    # 会议
+    "operating expenses",         # 会计术语
+    "agreement partnership"       # 泛指合作
+]
+
+# 预计算垃圾概念的向量（为了速度，只算一次）
+# 注意：这行代码要放在 model_emb 加载之后
+print("⏳ 正在预计算垃圾词向量...")
+noise_vecs = model_emb.encode(NOISE_CONCEPTS, normalize_embeddings=True)
+
 def calc_Bad_Score(text: str) -> int:
     """
-    越高越可能是 bad（需要人工判斷或直接 ban）
-    调整点：
-      ① 先按“好特征”清零——例如合法公司后缀。
+    【升级版】规则 + AI 混合评分
     """
-    # === ① 明显好特征：直接判 0 ===
-    if ORG_SUFFIX.search(text):           # Inc., Ltd. 等
-        return 0
-
     score = 0
-
-    # === ② 时间 & 数量类 ===
-    if TIME_QTY.search(text) or MONTH_NAME.search(text):
-        score += 40                       # 季度/月份/年，几乎一定是假公司
-
-    # === ③ 句式 & 组合词 ===
-    if ' of the ' in text.lower():        # “…of the…” 典型报告语
-        score += 20
-    if GENERIC_END.search(text):
-        score += 15
-    if GENERIC_NOUN.search(text):         # 新增：泛称名词
-        score += 15
-
-    # === ④ 大小写 & 长度 ===
-    words = text.split()
-    if len(words) <= 2:
-        score += 20
-    if _lower_ratio(text) > 0.30:
-        score += 15                       # 原来是 20，稍微放宽
-    if ALL_UPPER.match(text) or ALL_LOWER.match(text):
-        score += 15
-    if any(SHORT_TOKEN.match(w) for w in words):
-        score += 10                       # 像“LLC”“LP”这种很短的 token
+    
+    # === ① 规则判断 (保留原有的快速筛选，速度极快) ===
+    if ORG_SUFFIX.search(text): return 0       # 像公司名，直接放行
+    
+    # 基础规则扣分
+    if TIME_QTY.search(text): score += 30
+    if FIN_REPORT.search(text): score += 30
+    if len(text.split()) <= 2: score += 10
+    if _lower_ratio(text) > 0.30: score += 10
+    
+    # === ② AI 语义判断 (新增核心功能) ===
+    # 只有当 text 比较长，或者规则没判 0 分时，才动用 AI (省算力)
+    if score > 0 or len(text.split()) > 2:
+        # 1. 计算当前词的向量
+        text_vec = model_emb.encode([text], normalize_embeddings=True)[0]
         
-    if FIN_REPORT.search(text):        score += 30        
-    if ORDINAL_PERIOD.search(text):    score += 25        
-    if ANNOUNCE_VERB.search(text):     score += 20    
-    if NEW_GENERIC_TIME.search(text):      score += 40  # time 相关更狠
-    if ALLCAP_SHORT.match(text):           score += 50  # 纯缩写
-    if NUMERIC.search(text):               score += 25  # 含数值/金额    
-
+        # 2. 计算它和“垃圾概念”的最大相似度
+        # np.dot 计算点积 (因为已经normalize了，所以等同于余弦相似度)
+        sims = np.dot(noise_vecs, text_vec)
+        max_sim = float(np.max(sims))
+        
+        # 3. 根据相似度扣分
+        if max_sim > 0.4:  # 稍微有点像垃圾
+            score += 20
+        if max_sim > 0.6:  # 很像垃圾
+            score += 40
+        if max_sim > 0.8:  # 几乎确定是垃圾
+            score += 100
 
     return score
 # ---------------- 全局变量 ----------------
