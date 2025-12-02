@@ -893,47 +893,59 @@ def step2(mysql_url: str):
             continue
 
         # 该行达到“有2+家公司”的门槛，即使 unknowns 只有1个或更多，都进入 todo
-        for alias in unknowns:
-            # --- 首词命中 canonical ---
-            first_tok = re.split(r'[\s\-]+', alias, maxsplit=1)[0].lower()
-            if first_tok in canon_lower:
-                advice     = canon_lower2orig[first_tok]
-                adviced_id = canon_name2id.get(advice, "")
-            else:
-                # --- n-gram 完全匹配 ---
-                advice = adviced_id = ""
-                words = alias.split()
-                L = len(words)
-                for size in range(L, 0, -1):
-                    for i in range(0, L - size + 1):
-                        phrase = " ".join(words[i:i+size])
-                        key = phrase.lower()
-                        if key in canon_lower:
-                            advice     = canon_lower2orig[key]
-                            adviced_id = canon_name2id.get(advice, "")
-                            break
-                    if advice:
-                        break
+        # ---------------- 优化后的匹配逻辑 (Fuzzy + AI) ----------------
+        
+        # 1. 批量计算本行 unknowns 的向量 (性能优化：一次算完，比循环里一个个算快得多)
+        if len(canon_vecs) > 0 and unknowns:
+            unknown_vecs = model_emb.encode(unknowns, normalize_embeddings=True)
+        else:
+            unknown_vecs = []
 
-            # --- 语义相似度（可选） ---
-            if not advice and canon_vecs.size > 0:
-                alias_vec  = model_emb.encode([alias], normalize_embeddings=True)[0]
-                sims       = np.dot(canon_vecs, alias_vec)
-                best_idx   = int(np.argmax(sims))
-                best_score = float(sims[best_idx])
-                if best_score >= 0.80:
-                    advice     = canon_names[best_idx]
+        for i, alias in enumerate(unknowns):
+            advice = ""
+            adviced_id = ""
+            match_info = "" # 调试用，看看是谁立功了
+            
+            # --- 策略 A: 高精度模糊匹配 (RapidFuzz) ---
+            # 专治：拼写错误、后缀差异 (e.g. "Apple Incc" vs "Apple Inc.")
+            # token_sort_ratio 可以忽略单词顺序 (e.g. "Motors General" vs "General Motors")
+            fuzzy_res = process.extractOne(alias, canon_names, scorer=fuzz.token_sort_ratio)
+            
+            if fuzzy_res:
+                candidate, score, _ = fuzzy_res
+                # 设定一个较高的门槛，比如 90 分，确保字面非常像才直接采纳
+                if score >= 90:
+                    advice = candidate
                     adviced_id = canon_name2id.get(advice, "")
+                    match_info = f"Fuzzy({score:.0f})"
+            
+            # --- 策略 B: AI 向量语义匹配 ---
+            # 只有当 Fuzzy 没搞定 (advice 为空) 时，才请 AI 出山
+            if not advice and len(canon_vecs) > 0:
+                # 取出刚刚批量算好的向量
+                curr_vec = unknown_vecs[i]
+                
+                # 计算与所有标准名的相似度
+                sims = np.dot(canon_vecs, curr_vec)
+                best_idx = int(np.argmax(sims))
+                vector_score = float(sims[best_idx])
+                
+                # 阈值：0.82 (稍微提高一点门槛，减少幻觉)
+                if vector_score >= 0.82:
+                    advice = canon_names[best_idx]
+                    adviced_id = canon_name2id.get(advice, "")
+                    match_info = f"AI({vector_score:.2f})"
 
-            # 写入 todo
+            # --- 存入 Todo ---
             todo_rows.append({
-                "Sentence":        row["Sentence"],
-                "Alias":           alias,
-                "Bad_Score":       calc_Bad_Score(alias),
-                "Advice":          advice or "",
-                "Adviced_ID":      adviced_id or "",
-                "Canonical_Name":  "",
-                "Std_Result":      ""
+                "Sentence": row["Sentence"],
+                "Alias":    alias,
+                "Bad_Score": calc_Bad_Score(alias),
+                "Advice":   advice,           # 推荐结果
+                "Adviced_ID": adviced_id,     # 推荐ID
+                # "Match_Info": match_info,   # (可选) 如果你想在 CSV 里看到是 AI 还是 Fuzzy 匹配的，可以把这行加到 csv 列里
+                "Canonical_Name": "",
+                "Std_Result": ""
             })
 
     # 2) 组装 DataFrame（空表安全）
