@@ -191,7 +191,8 @@ except Exception:
 
 # ---------------- 常量 ----------------
 STOPWORDS = {"the","and","for","with","from","that","this","have","will","are","you","not","but","all","any","one","our","their"}
-KEYWORD_ROOTS = [
+# 预设的关键词列表 (选项1)
+PRESET_KEYWORDS_2025 = [
     'partner','alliance','collaborat','cooper','cooperat','join','merger','acquisiti',
     'outsourc','invest','licens','integrat','coordinat','synergiz','associat',
     'confedera','federa','union','unit','amalgamat','conglomerat','combin',
@@ -199,6 +200,9 @@ KEYWORD_ROOTS = [
     'takeover','accession','procure','suppl','conjoint','support','adjust',
     'adjunct','patronag','subsid','affiliat','endors'
 ]
+# 全局使用的关键词列表 (初始为空，稍后在 configure_keywords 中赋值)
+KEYWORD_ROOTS = []
+
 # 匹配: "April 28, 2025" 或 "21 May 2025"
 DATE_FINDER = re.compile(
     r'\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4})\b',
@@ -351,6 +355,49 @@ def choose() -> str:
         sys.exit(1)
 
     return c
+
+# ---------- 【新增功能】关键词配置函数 ----------
+def configure_keywords():
+    """
+    让用户选择关键词模式：预设或自定义
+    """
+    global KEYWORD_ROOTS
+    
+    cute_box(
+        "请选择筛选句子的关键词模式：\n"
+        "1. 2025 AI x Healthcare 分析用 (默认)\n"
+        "2. その他 (自定义输入)",
+        "キーワードモードを選択してください：\n"
+        "1. 2025 AI x ヘルスケア分析用 (デフォルト)\n"
+        "2. その他 (カスタム入力)",
+        "🔑"
+    )
+    
+    choice = input("请输入 1 或 2 (默认1): ").strip()
+    
+    if choice == "2":
+        print("\n👉 请输入自定义关键词，格式如：'keyword1','keyword2','keyword3'...")
+        print("👉 カスタムキーワードを入力してください（形式：'keyword1','keyword2'...）")
+        raw_input = input(">>>>>> ").strip()
+        
+        # 解析输入：分割逗号，去除单引号、双引号和首尾空格
+        try:
+            # 简单的字符串处理：按逗号切分 -> 去空格 -> 去引号
+            custom_keys = [k.strip().strip("'").strip('"') for k in raw_input.split(',') if k.strip()]
+            
+            if not custom_keys:
+                raise ValueError("输入为空 / 入力が空です")
+                
+            KEYWORD_ROOTS = custom_keys
+            print(f"✅ 已加载 {len(KEYWORD_ROOTS)} 个自定义关键词 / カスタムキーワードをロードしました")
+            print(f"📝 list: {KEYWORD_ROOTS}")
+        except Exception as e:
+            print(f"❌ 输入格式错误，回退到默认模式。错误：{e}")
+            KEYWORD_ROOTS = PRESET_KEYWORDS_2025
+    else:
+        # 默认模式
+        KEYWORD_ROOTS = PRESET_KEYWORDS_2025
+        print("✅ 已加载默认关键词 (2025 AI x Healthcare) / デフォルトキーワードをロードしました")
 
 def dedup_company_cols(df: pd.DataFrame) -> pd.DataFrame:
     comp_cols = [c for c in df.columns if c.startswith("company_")]
@@ -1203,7 +1250,9 @@ def main():
             "❌"
         )
         sys.exit(1)
-
+        
+    configure_keywords()
+    
     choice = choose()
 
     if choice == "1":
