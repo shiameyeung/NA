@@ -47,8 +47,6 @@ Libraries: PyTorch, Pandas, SQLAlchemy, python-docx, RapidFuzz, OpenAI
 
 Database: MySQL (MariaDB)
 
-Infrastructure: Local GPU/MPS Acceleration supported
-
 # ガイド
 
 # 初回
