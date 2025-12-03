@@ -366,47 +366,55 @@ def choose() -> str:
     return c
 
 # ---------- 【新增功能】关键词配置函数 ----------
+# 全局变量
+KEYWORD_ROOTS = []
+USE_SEMANTIC_FILTER = False  # 新增：标记是否使用语义筛选
+
+# 语义筛选的“标杆句子”
+ANCHOR_TEXT = "Companies announce strategic partnership, joint venture, merger, acquisition, investment, or business collaboration."
+
 def configure_keywords():
     """
-    让用户选择关键词模式：预设或自定义
+    配置筛选模式：预设关键词、自定义关键词、或 AI 语义筛选
     """
-    global KEYWORD_ROOTS
+    global KEYWORD_ROOTS, USE_SEMANTIC_FILTER
     
     cute_box(
-        "请选择筛选句子的关键词模式：\n"
-        "1. 2025 AI x Healthcare 分析用 (默认)\n"
-        "2. その他 (自定义输入)",
-        "キーワードモードを選択してください：\n"
-        "1. 2025 AI x ヘルスケア分析用 (デフォルト)\n"
-        "2. その他 (カスタム入力)",
+        "请选择筛选模式 / フィルタリングモードを選択：\n"
+        "1. 关键词: 2025 AI x Healthcare 分析用 (默认)\n"
+        "2. 关键词: その他 (自定义输入)\n"
+        "3. AI语义: (sentence-transformers/all-MiniLM-L6-v2)",
+        "モードを選択してください：\n"
+        "1. キーワード: 2025 AI x ヘルスケア分析用 (デフォルト)\n"
+        "2. キーワード: その他 (カスタム入力)\n"
+        "3. AI意味論: (sentence-transformers/all-MiniLM-L6-v2)",
         "🔑"
     )
     
-    choice = input("请输入 1 或 2 (默认1): ").strip()
+    choice = input("请输入 1, 2 或 3 (默认1): ").strip()
     
-    if choice == "2":
-        print("\n👉 请输入自定义关键词，格式如：'keyword1','keyword2','keyword3'...")
-        print("👉 カスタムキーワードを入力してください（形式：'keyword1','keyword2'...）")
-        raw_input = input(">>>>>> ").strip()
+    if choice == "3":
+        USE_SEMANTIC_FILTER = True
+        print("✅ 已启用 AI 语义筛选模式 / AI意味論的フィルタリングを有効にしました")
+        # 加载模型 (如果之前没加载的话，确保这里有模型可用)
+        # 注意：脚本开头已经加载了 model_emb，这里直接用就行
+        print(f"🧠 使用模型: sentence-transformers/all-MiniLM-L6-v2")
+        print(f"📌 标杆句子: {ANCHOR_TEXT}")
         
-        # 解析输入：分割逗号，去除单引号、双引号和首尾空格
+    elif choice == "2":
+        print("\n👉 请输入自定义关键词，格式如：'keyword1','keyword2'...")
+        raw_input = input(">>>>>> ").strip()
         try:
-            # 简单的字符串处理：按逗号切分 -> 去空格 -> 去引号
             custom_keys = [k.strip().strip("'").strip('"') for k in raw_input.split(',') if k.strip()]
-            
-            if not custom_keys:
-                raise ValueError("输入为空 / 入力が空です")
-                
+            if not custom_keys: raise ValueError("Empty input")
             KEYWORD_ROOTS = custom_keys
-            print(f"✅ 已加载 {len(KEYWORD_ROOTS)} 个自定义关键词 / カスタムキーワードをロードしました")
-            print(f"📝 list: {KEYWORD_ROOTS}")
-        except Exception as e:
-            print(f"❌ 输入格式错误，回退到默认模式。错误：{e}")
+            print(f"✅ 已加载 {len(KEYWORD_ROOTS)} 个自定义关键词")
+        except:
+            print("❌ 格式错误，回退到默认模式")
             KEYWORD_ROOTS = PRESET_KEYWORDS_2025
     else:
-        # 默认模式
         KEYWORD_ROOTS = PRESET_KEYWORDS_2025
-        print("✅ 已加载默认关键词 (2025 AI x Healthcare) / デフォルトキーワードをロードしました")
+        print("✅ 已加载默认关键词 (2025 AI x Healthcare)")
 
 def dedup_company_cols(df: pd.DataFrame) -> pd.DataFrame:
     comp_cols = [c for c in df.columns if c.startswith("company_")]
@@ -571,19 +579,52 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
 
             article = " ".join(clean_text(paras[i].text) for i in range(body_start, body_end))
             
-            # 5. 拆分句子并保存
-            for sent in [s.strip() for s in re.split(r"\.\s*", article) if len(s.strip())>=5]:
-                hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
-                recs.append({
-                    "Title": title_raw,
-                    "Publisher": publisher,
-                    "Date": news_date, 
-                    "Country": "",
-                    "Sentence": sent,
-                    "Hit_Count": len(hits),
-                    "Matched_Keywords": "; ".join(hits)
-                })
-        
+            # 切分句子
+            raw_sents = [s.strip() for s in re.split(r"\.\s*", article) if len(s.strip())>=20]
+
+            # --- 如果是语义模式，先批量计算向量 ---
+            if USE_SEMANTIC_FILTER and raw_sents:
+                # 计算标杆向量 (如果还没算过)
+                if not hasattr(extract_sentences_by_titles, "anchor_vec"):
+                     extract_sentences_by_titles.anchor_vec = model_emb.encode([ANCHOR_TEXT], normalize_embeddings=True)[0]
+                
+                sent_vecs = model_emb.encode(raw_sents, normalize_embeddings=True)
+                sim_scores = np.dot(sent_vecs, extract_sentences_by_titles.anchor_vec)
+            else:
+                sim_scores = [0.0] * len(raw_sents)
+
+            # --- 遍历句子进行筛选 ---
+            for i, sent in enumerate(raw_sents):
+                is_hit = False
+                match_reason = ""
+                hit_count = 0
+
+                if USE_SEMANTIC_FILTER:
+                    # === 模式 A: AI 语义筛选 ===
+                    score = float(sim_scores[i])
+                    if score > 0.45: # 阈值可调 (0.4 - 0.5)
+                        is_hit = True
+                        hit_count = 1 # 语义命中算 1 分
+                        match_reason = f"Semantic({score:.2f})"
+                else:
+                    # === 模式 B: 关键词筛选 ===
+                    hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
+                    if hits:
+                        is_hit = True
+                        hit_count = len(hits)
+                        match_reason = "; ".join(hits)
+                
+                if is_hit:
+                    recs.append({
+                        "Title": title_raw,
+                        "Publisher": publisher,
+                        "Date": news_date,
+                        "Country": "",
+                        "Sentence": sent,
+                        "Hit_Count": hit_count,
+                        "Matched_Keywords": match_reason
+                    })
+
         if recs: return recs
 
     # 无索引的情况 (fallback)
