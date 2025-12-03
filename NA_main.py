@@ -1255,20 +1255,45 @@ def step3(mysql_url: str):
 def ask_gpt_batch(batch_data: List[Dict], api_key: str) -> Dict:
     client = OpenAI(api_key=api_key)
     prompt = f"""
-    You are a data cleaner. Analyze the list of "alias" and "advice".
-    
-    Rules:
-    1. If "alias" is NOT a company/organization (e.g. generic text, job title, report name), set "is_company": false.
-    2. If "alias" IS a company:
-       - set "is_company": true.
-       - provide "clean_name": the official company name without legal suffixes (e.g. "Apple Inc" -> "Apple").
-       - if "advice" is provided and it refers to the SAME entity as "alias", set "matches_advice": true. Otherwise false.
+    You are a data cleaning expert for business strategy research. 
+    Analyze the list of "alias" strings.
 
+    Task: Determine the [Organizational Entity] behind the alias.
+    
+    [Allowed Categories] -> Set "is_company": true
+    1. Commercial Companies (e.g., Toyota, Google, OpenAI)
+    2. Educational Institutions (e.g., Harvard University, Tokyo High School)
+    3. Government Bodies & Municipalities (e.g., Osaka Prefecture, Ministry of Economy)
+    4. NGOs, NPOs, Associations (e.g., Red Cross, IEEE)
+    
+    [Special Mapping Rules for Products & IPs] -> Set "is_company": true
+    If the 'alias' is a Product, Service, or Fictional Character/IP, DO NOT reject it. instead, map it to its OWNER Company.
+    Examples:
+    - "iPhone" -> is_company: true, clean_name: "Apple"
+    - "ChatGPT" -> is_company: true, clean_name: "OpenAI"
+    - "Mickey Mouse" -> is_company: true, clean_name: "Disney"
+    - "Mario" -> is_company: true, clean_name: "Nintendo"
+    - "Barbie" -> is_company: true, clean_name: "Mattel"
+
+    [Forbidden Categories] -> Set "is_company": false
+    1. General Nouns / Not Proper Nouns (e.g., "external researchers", "local governments", "our partners", "the committee", "anime", "video games")
+    2. Job Titles / Departments (e.g., "CEO", "Sales Department")
+    3. Individuals (unless the name refers to a sole proprietorship/studio)
+
+    Rules for "clean_name":
+    - Remove legal suffixes (Inc., Ltd., Corp., K.K., etc.).
+    - If it is a Product/IP, use the OWNER Company Name.
+    - Keep the full proper name (e.g., "University of Tokyo" -> "University of Tokyo").
+    
     Input: {json.dumps(batch_data, ensure_ascii=False)}
     
     Output JSON format:
     {{
-        "alias_original_text": {{ "is_company": bool, "clean_name": str, "matches_advice": bool }}
+        "alias_original_text": {{ 
+            "is_company": bool, 
+            "clean_name": str, 
+            "matches_advice": bool // If the mapped company matches the provided 'advice' entity
+        }}
     }}
     """
     try:
