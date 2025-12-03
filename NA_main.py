@@ -165,6 +165,9 @@ import random
 
 import itertools
 
+import json
+from openai import OpenAI
+
 import pandas as pd
 from tqdm import tqdm
 from sqlalchemy import create_engine, text
@@ -346,23 +349,21 @@ def ask_mysql_url() -> str:
     return f"mysql+pymysql://{key}:3306/na_data?charset=utf8mb4" 
 
 def choose() -> str:
-    # ── 1. 选项框 ───────────────────────────────────────────
     cute_box(
-        "① 初次运行（Step-1 ➜ Step-2）\n② mapping适用/邻接（Step-3/4）\n作者：杨 天乐 支持：李 宗昊 李 佳璇 @関西大学　伊佐田研究室",
-        "① 初回実行（Step-1 ➜ Step-2）\n② mapping適用/隣接（Step-3/4）\n作成者：楊 天楽　協力：李 宗昊 李 佳璇 @関西大学　伊佐田研究室",
-        "📋"
+        "① 初次运行（Step-1 ➜ Step-2）\n"
+        "② mapping适用/邻接（Step-3/4）\n"
+        "③ [新] AI 自动填写 mapping_todo (GPT Auto-fill)",
+        "① 初回実行\n② mapping適用/隣接\n③ [New] AI 自動入力",
+        "作成者：楊 天楽　協力：李 宗昊 李 佳璇 @関西大学　伊佐田研究室�"
     )
-    c = input("请输入 1 或 2 / 1 か 2 を入力してください: ").strip()
-
-    # ── 2. 校验 ───────────────────────────────────────────
-    if c not in {"1", "2"}:
+    c = input("请输入 1, 2 或 3: ").strip()
+    if c not in {"1", "2", "3"}: 
         cute_box(
-        "无效选择，请输入 1 或 2！",
-        "無効な選択です。1 か 2 を入力してね！",
+        "无效选择，请输入 1 或 2 或 3！",
+        "無効な選択です。1 か 2 か 3 を入力してね！",
         "🔄"
         )
         sys.exit(1)
-
     return c
 
 # ---------- 【新增功能】关键词配置函数 ----------
@@ -1243,7 +1244,128 @@ def step3(mysql_url: str):
         "📌"
     )
                
+# ---------- 【新增】选项 3：GPT 自动填充功能 ----------
+
+def ask_gpt_batch(batch_data: List[Dict], api_key: str) -> Dict:
+    client = OpenAI(api_key=api_key)
+    prompt = f"""
+    You are a data cleaner. Analyze the list of "alias" and "advice".
+    
+    Rules:
+    1. If "alias" is NOT a company/organization (e.g. generic text, job title, report name), set "is_company": false.
+    2. If "alias" IS a company:
+       - set "is_company": true.
+       - provide "clean_name": the official company name without legal suffixes (e.g. "Apple Inc" -> "Apple").
+       - if "advice" is provided and it refers to the SAME entity as "alias", set "matches_advice": true. Otherwise false.
+
+    Input: {json.dumps(batch_data, ensure_ascii=False)}
+    
+    Output JSON format:
+    {{
+        "alias_original_text": {{ "is_company": bool, "clean_name": str, "matches_advice": bool }}
+    }}
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0
+        )
+        return json.loads(response.choices[0].message.content)
+    except:
+        return {}
+
+def step_ai_autofill():
+    """
+    读取 result_mapping_todo.csv，利用 GPT 自动填写 Canonical_Name 列
+    """
+    csv_path = BASE_DIR / "result_mapping_todo.csv"
+    if not csv_path.exists():
+        cute_box("找不到 result_mapping_todo.csv！", "ファイルが見つかりません", "❌")
+        return
+
+    # 1. 获取 API Key
+    api_key = input("请输入 OpenAI API Key (sk-...) / APIキーを入力: ").strip()
+    if not api_key:
+        print("❌ 未输入 Key，操作取消。")
+        return
+
+    print("⏳ 正在读取 CSV...")
+    df = pd.read_csv(csv_path, dtype=str).fillna("")
+    
+    # 2. 筛选出需要处理的行 (Canonical_Name 为空的行)
+    # 如果您想覆盖已填写的，可以去掉这个筛选条件
+    mask = df["Canonical_Name"] == ""
+    rows_to_process = df[mask]
+    
+    if rows_to_process.empty:
+        print("✨ 所有行的 Canonical_Name 都已填好，无需处理！")
+        return
+
+    print(f"🤖 准备处理 {len(rows_to_process)} 条数据...")
+    
+    # 3. 分批处理 (每批 30 条)
+    batch_size = 30
+    updates = {} # 暂存结果 {index: canonical_value}
+    
+    # 将 DataFrame 转为列表字典，方便切片
+    # 我们只需要 Alias 和 Advice 两个字段给 AI 参考
+    data_list = []
+    for idx, row in rows_to_process.iterrows():
+        data_list.append({
+            "index": idx, # 记住原始行号
+            "alias": row["Alias"],
+            "advice": row["Advice"]
+        })
+
+    for i in tqdm(range(0, len(data_list), batch_size), desc="GPT Cleaning"):
+        batch = data_list[i : i + batch_size]
+        
+        # 构造发给 GPT 的精简列表 (去掉 index，省 token)
+        gpt_input = [{"alias": item["alias"], "advice": item["advice"]} for item in batch]
+        
+        # 调用 API
+        gpt_res = ask_gpt_batch(gpt_input, api_key)
+        
+        # 解析结果并决定填什么
+        for item in batch:
+            alias = item["alias"]
+            idx = item["index"]
             
+            # 获取该行的 Advice ID (从原始 df)
+            adv_id = df.at[idx, "Adviced_ID"]
+            
+            # ... 在循环内部 ...
+            if alias in gpt_res:
+                res = gpt_res[alias]
+                
+                # 1. 不是公司 -> 填 0
+                if not res.get("is_company", False):
+                    updates[idx] = "0"
+                
+                # 2. 是公司
+                else:
+                    # 逻辑：已有 Advice 且 AI 认为匹配 -> 填 ID
+                    if df.at[idx, "Advice"] and df.at[idx, "Adviced_ID"] and res.get("matches_advice", False):
+                        updates[idx] = df.at[idx, "Adviced_ID"]
+                    # 逻辑：否则 -> 填 AI 清洗后的名字
+                    else:
+                        updates[idx] = res.get("clean_name", alias) # 兜底用原名
+
+    # 4. 回写 DataFrame
+    print("💾 正在保存结果...")
+    for idx, val in updates.items():
+        df.at[idx, "Canonical_Name"] = val
+        
+    # 保存
+    df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+    cute_box(
+        f"✅ 自动填写完成！已更新 {len(updates)} 行", 
+        f"自動入力完了！{len(updates)} 行を更新しました", 
+        "🎉"
+    )
+
 def step4():
     import pandas as _pd
 
@@ -1346,7 +1468,11 @@ def main():
                 "無効な入力です。もう一度入力してね！",
                 "🔄"
                 )
-
+    elif choice == "3":
+        # 直接运行 AI 自动填写
+        step_ai_autofill()
+        cute_box("填完了！现在你可以选 2 来执行入库了", "完了！2を選んでDB登録してください", "👍")
+        
     else:   # choice == "2"
         step3(mysql_url)
         step4()
