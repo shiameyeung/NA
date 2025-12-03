@@ -1310,14 +1310,29 @@ def ask_gpt_batch(batch_data: List[Dict], api_key: str) -> Dict:
 def step_ai_autofill():
     """
     读取 result_mapping_todo.csv，利用 GPT 自动填写 Canonical_Name 列
+    包含自动保存 API Key 的功能
     """
     csv_path = BASE_DIR / "result_mapping_todo.csv"
     if not csv_path.exists():
         cute_box("找不到 result_mapping_todo.csv！", "ファイルが見つかりません", "❌")
         return
 
-    # 1. 获取 API Key
-    api_key = input("请输入 OpenAI API Key (sk-...) / APIキーを入力: ").strip()
+    # --- 【新增】自动读取/保存 Key 的逻辑 ---
+    key_file = BASE_DIR / ".openai_key"
+    api_key = ""
+    
+    if key_file.exists():
+        api_key = key_file.read_text().strip()
+        print(f"🔑 已自动加载保存的 API Key: {api_key[:8]}...")
+    
+    if not api_key:
+        api_key = input("请输入 OpenAI API Key (sk-...) / APIキーを入力: ").strip()
+        if api_key:
+            # 保存到文件
+            key_file.write_text(api_key)
+            print("💾 API Key 已保存，下次无需输入。")
+    # ----------------------------------------
+
     if not api_key:
         print("❌ 未输入 Key，操作取消。")
         return
@@ -1325,8 +1340,9 @@ def step_ai_autofill():
     print("⏳ 正在读取 CSV...")
     df = pd.read_csv(csv_path, dtype=str).fillna("")
     
+    # ... (后续逻辑保持不变) ...
+    
     # 2. 筛选出需要处理的行 (Canonical_Name 为空的行)
-    # 如果您想覆盖已填写的，可以去掉这个筛选条件
     mask = df["Canonical_Name"] == ""
     rows_to_process = df[mask]
     
@@ -1340,8 +1356,6 @@ def step_ai_autofill():
     batch_size = 30
     updates = {} # 暂存结果 {index: canonical_value}
     
-    # 将 DataFrame 转为列表字典，方便切片
-    # 我们只需要 Alias 和 Advice 两个字段给 AI 参考
     data_list = []
     for idx, row in rows_to_process.iterrows():
         data_list.append({
@@ -1353,7 +1367,6 @@ def step_ai_autofill():
     for i in tqdm(range(0, len(data_list), batch_size), desc="GPT Cleaning"):
         batch = data_list[i : i + batch_size]
         
-        # 构造发给 GPT 的精简列表 (去掉 index，省 token)
         gpt_input = [{"alias": item["alias"], "advice": item["advice"]} for item in batch]
         
         # 调用 API
@@ -1364,32 +1377,23 @@ def step_ai_autofill():
             alias = item["alias"]
             idx = item["index"]
             
-            # 获取该行的 Advice ID (从原始 df)
             adv_id = df.at[idx, "Adviced_ID"]
             
-            # ... 在循环内部 ...
             if alias in gpt_res:
                 res = gpt_res[alias]
                 
-                # 1. 不是公司 -> 填 0
                 if not res.get("is_company", False):
                     updates[idx] = "0"
-                
-                # 2. 是公司
                 else:
-                    # 逻辑：已有 Advice 且 AI 认为匹配 -> 填 ID
                     if df.at[idx, "Advice"] and df.at[idx, "Adviced_ID"] and res.get("matches_advice", False):
                         updates[idx] = df.at[idx, "Adviced_ID"]
-                    # 逻辑：否则 -> 填 AI 清洗后的名字
                     else:
-                        updates[idx] = res.get("clean_name", alias) # 兜底用原名
+                        updates[idx] = res.get("clean_name", alias)
 
-    # 4. 回写 DataFrame
     print("💾 正在保存结果...")
     for idx, val in updates.items():
         df.at[idx, "Canonical_Name"] = val
         
-    # 保存
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     cute_box(
         f"✅ 自动填写完成！已更新 {len(updates)} 行", 
