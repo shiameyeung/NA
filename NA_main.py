@@ -497,91 +497,105 @@ def extract_index_titles(paragraphs):
     return sorted(titles, key=lambda x: x[0])
 
 def extract_sentences_by_titles(filepath: str) -> List[Dict]:
+    """
+    【修复版 v4】
+    1. 包含日期验证机制：防止匹配到正文里的重复标题，解决 Publisher 抓错问题。
+    2. 包含语义筛选功能：支持关键词/AI语义模式切换。
+    """
     doc = Document(filepath); paras = doc.paragraphs
     index_titles = extract_index_titles(paras); recs = []
     
     if index_titles:
         paras_norm = [_normalize(p.text) for p in paras]
-        # 记录上一次找到的文章结束位置，避免回头重找
         last_article_end_idx = 0
 
         for i_title, (doc_idx, title_raw, title_norm) in enumerate(index_titles):
             match_idx = -1
+            date_line_idx = -1
             
-            # --- 【核心修复】智能定位正文标题 ---
-            # 从上次结束的地方开始搜，找到所有匹配的标题行
+            # 从上次结束位置开始，寻找所有匹配的标题行
             candidates = [i for i, n in enumerate(paras_norm) 
                           if i >= last_article_end_idx and n == title_norm]
             
             for idx in candidates:
-                # 检查下一行：如果是 Client/Matter，说明这是目录，不是正文，跳过！
+                # 1. 目录检查 (Client/Matter) - 跳过目录
                 if idx + 1 < len(paras):
-                    next_line_text = paras[idx+1].text.strip().lower()
-                    if next_line_text.startswith("client/matter") or next_line_text.startswith("search terms"):
+                    next_line = paras[idx+1].text.strip().lower()
+                    if next_line.startswith("client/matter") or next_line.startswith("search terms"):
                         continue 
+
+                # 2. 【关键修复】日期验证机制
+                # 真正的文章标题，其后 1-3 行内一定包含日期。
+                # 如果找不到日期，说明这是正文里的假标题（摘要或引用），跳过！
+                found_date = False
+                temp_date_idx = -1
                 
-                # 找到了真正的正文标题
-                match_idx = idx
-                break
+                # 往后看 3 行寻找日期
+                for offset in range(1, 4):
+                    if idx + offset >= len(paras): break
+                    txt = paras[idx + offset].text.strip()
+                    if DATE_FINDER.search(txt):
+                        found_date = True
+                        temp_date_idx = idx + offset
+                        break
+                
+                if found_date:
+                    match_idx = idx
+                    date_line_idx = temp_date_idx
+                    break
             
-            # 兜底：如果实在找不到，就用第一个找到的（极少情况）
-            if match_idx == -1 and candidates: match_idx = candidates[0]
-            elif match_idx == -1: continue # 彻底找不到，跳过
+            # 如果没找到带日期的标题，就放弃这篇文章（防止抓错）
+            if match_idx == -1: 
+                continue
 
             # ----------------------------------
 
-            # 1. 提取出版社 (标题下一行)
-            pub_idx = match_idx + 1
-            publisher = paras[pub_idx].text.strip() if pub_idx < len(paras) else ""
+            # 3. 智能提取 Publisher
+            # Publisher 通常在 Title 和 Date 之间
+            # 如果 Date 在 Title 下面第 2 行或更远，中间那就是 Publisher
+            if date_line_idx > match_idx + 1:
+                publisher = paras[match_idx + 1].text.strip()
+            else:
+                publisher = "" # 只有日期，没写出版社
             
-            # 2. 寻找 Body 的开始位置
-            # 限制搜索范围：从标题后开始，防止搜到下一篇文章里去
+            # 4. 提取日期
+            news_date = ""
+            m = DATE_FINDER.search(paras[date_line_idx].text.strip())
+            if m: news_date = m.group(0)
+
+            # 5. 确定正文范围
+            # Body 应该在 Date 之后开始，更新 pub_idx 为日期行，方便后续定位
+            pub_idx = date_line_idx 
+            
             search_end_limit = len(paras)
-            # 尝试寻找下一篇文章的标题作为边界
             if i_title + 1 < len(index_titles):
                 next_title_norm = index_titles[i_title+1][2]
-                # 简单启发式：在当前位置20行后找下一个标题
                 try:
                     next_candidates = [i for i, n in enumerate(paras_norm) 
                                        if i > match_idx + 20 and n == next_title_norm]
                     if next_candidates: search_end_limit = next_candidates[0]
                 except Exception: pass
 
-            # 在范围内找 "Body"
-            body_start = next((i+1 for i in range(match_idx+1, search_end_limit) if paras[i].text.strip().lower() == "body"), None)
-            
-            # 如果没找到 "Body"，默认标题后第5行开始（跳过元数据）
+            body_start = next((i+1 for i in range(pub_idx+1, search_end_limit) if paras[i].text.strip().lower() == "body"), None)
             if body_start is None: 
-                body_start = pub_idx + 5 
-                if body_start >= len(paras): body_start = pub_idx + 1
+                body_start = pub_idx + 1 # 如果没 Body 标签，就从日期下一行开始
             
-            # 3. 【新增】提取日期 (在 Title 和 Body 之间寻找)
-            news_date = ""
-            for k in range(pub_idx, body_start):
-                if k >= len(paras): break
-                txt = paras[k].text.strip()
-                m = DATE_FINDER.search(txt)
-                if m:
-                    news_date = m.group(0) 
-                    break
-            
-            # 4. 提取正文内容 (截止到 Notes 或 Classification)
             body_end = len(paras)
             for i in range(body_start, search_end_limit):
                 t_low = paras[i].text.strip().lower()
                 if t_low.startswith("notes") or t_low.startswith("classification") or "(end) dow jones" in t_low:
                     body_end = i
                     break
-            
-            last_article_end_idx = body_end # 更新下次搜索起点
+            last_article_end_idx = body_end
 
+            # 6. 提取句子 (保留了语义筛选逻辑)
             article = " ".join(clean_text(paras[i].text) for i in range(body_start, body_end))
             
             # 切分句子
             raw_sents = [s.strip() for s in re.split(r"\.\s*", article) if len(s.strip())>=20]
 
             # --- 如果是语义模式，先批量计算向量 ---
-            if USE_SEMANTIC_FILTER and raw_sents:
+            if 'USE_SEMANTIC_FILTER' in globals() and USE_SEMANTIC_FILTER and raw_sents:
                 # 计算标杆向量 (如果还没算过)
                 if not hasattr(extract_sentences_by_titles, "anchor_vec"):
                      extract_sentences_by_titles.anchor_vec = model_emb.encode([ANCHOR_TEXT], normalize_embeddings=True)[0]
@@ -597,10 +611,10 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
                 match_reason = ""
                 hit_count = 0
 
-                if USE_SEMANTIC_FILTER:
+                if 'USE_SEMANTIC_FILTER' in globals() and USE_SEMANTIC_FILTER:
                     # === 模式 A: AI 语义筛选 ===
                     score = float(sim_scores[i])
-                    if score > 0.45: # 阈值可调 (0.4 - 0.5)
+                    if score > 0.45: # 阈值可调
                         is_hit = True
                         hit_count = 1 # 语义命中算 1 分
                         match_reason = f"Semantic({score:.2f})"
@@ -622,32 +636,20 @@ def extract_sentences_by_titles(filepath: str) -> List[Dict]:
                         "Hit_Count": hit_count,
                         "Matched_Keywords": match_reason
                     })
-
+        
         if recs: return recs
 
-    # 无索引的情况 (fallback)
+    # Fallback (无索引情况)
+    # 这里不需要太复杂的日期验证，因为单篇文章通常结构简单
     for sent in extract_sentences(Path(filepath)):
+        # 这里只做了简单的关键词筛选兼容，如果需要Fallback也支持语义，逻辑同上
         hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
-        recs.append({
-            "Title": "", "Publisher": "", "Date": "", "Country": "", 
-            "Sentence": sent, "Hit_Count": len(hits), 
-            "Matched_Keywords": "; ".join(hits)
-        })
-    return recs
-
-    # 无索引的情况 (fallback)
-    # 这种情况下很难定位准确日期，暂时留空或按需修改
-    for sent in extract_sentences(Path(filepath)):
-        hits = [k for k in KEYWORD_ROOTS if k in sent.lower()]
-        recs.append({
-            "Title": "", 
-            "Publisher": "", 
-            "Date": "",       # <--- 补位
-            "Country": "", 
-            "Sentence": sent, 
-            "Hit_Count": len(hits), 
-            "Matched_Keywords": "; ".join(hits)
-        })
+        if hits:
+             recs.append({
+                "Title": "", "Publisher": "", "Date": "", "Country": "", 
+                "Sentence": sent, "Hit_Count": len(hits), 
+                "Matched_Keywords": "; ".join(hits)
+            })
     return recs
 
 def step1():
