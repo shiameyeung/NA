@@ -136,7 +136,7 @@ def ensure_env() -> None:
             "spaCy モデル en_core_web_sm をダウンロード中…",
             "🔄"
         )
-        subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm"])
+        subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm", "openai"])
         did_install = True
 
     # ---------- 6. 结束语 ----------
