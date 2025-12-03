@@ -1,3 +1,55 @@
+CorpLink-AI: 非構造化テキストからの企業間ネットワーク自動抽出・分析システム
+CorpLink-AI（別名：Strategic-CorpNet-AI）は、国際経営戦略論の研究において、数千～数万件規模のニュースリリースやレポート（非構造化テキスト）から、企業間の提携・協力関係を効率的かつ高精度に抽出し、構造化データベースを構築するために開発された自動データ処理パイプライン（ETL Pipeline）です。
+
+従来の「キーワード検索」や「手作業による名寄せ」の限界を突破するため、最新の**小規模言語モデル（SLM）と大規模言語モデル（LLM）**を組み合わせたハイブリッドアーキテクチャを採用しています。
+
+堅牢なデータ処理ロジック (Robust Engineering)
+
+実データに含まれる「汚れ」や「ノイズ」に対応するための工夫を随所に実装しています。
+
+アンカー検証機能: ニュース本文中の小見出しを「発行元（Publisher）」と誤認しないよう、日付フォーマットをアンカー（目印）として記事の開始位置を特定する検証ロジックを搭載。
+
+IP/製品名の帰属解決: 「iPhone」「ミッキーマウス」などの製品・IP名が抽出された場合、単に除外するのではなく、その権利元企業（Apple、Disneyなど）へ自動マッピングするロジックをプロンプトに組み込みました。
+
+🛠️ 主な機能 (Features)
+✅ Step 1: 高度なテキスト抽出 & フィルタリング
+
+マルチモード対応: 従来の「キーワードマッチング」に加え、**「AI意味論的フィルタリング」**モードを搭載。SBERTを用いて「戦略的提携」に関連する文脈のみを高精度に抽出します。
+
+日付・発行元の自動特定: 複雑なフォーマットのWord/PDF文書から、記事ごとのメタデータ（日付、発行元）を正確にパースします。
+
+✅ Step 2: インテリジェントなデータ洗浄 (Smart Cleaning)
+
+Fuzzy + AI ハイブリッド照合:
+
+まず RapidFuzz を用いて、既存データベース内の企業名と字面が似ているもの（表記ゆれ）を高速マッチング。
+
+マッチしない場合、SentenceTransformer で意味的な類似性を計算し、「Google」と「Alphabet」のような関連性を検出。
+
+GPT Auto-fill (自動名寄せ):
+
+未知の企業名に対しては、OpenAI API (GPT-4o-mini) を呼び出し、「企業か否かの判定」「正式名称への正規化」「IPの親会社特定」を全自動で行います。
+
+✅ Step 3 & 4: データベース構築とネットワーク分析
+
+MySQLへの構造化保存: 抽出・正規化されたデータを、canonical_name（正規名）とalias（別名）のリレーショナル構造で保存。
+
+ネットワークグラフ生成: 企業間の共起関係に基づき、隣接リスト（Adjacency List）とピボットテーブルを自動生成し、社会ネットワーク分析（SNA）ツールへ即座にインポート可能な形式で出力します。
+
+💻 技術スタック (Tech Stack)
+
+Language: Python 3.11+
+
+NLP Models: spaCy, SentenceTransformers (all-MiniLM-L6-v2), GPT-4o-mini
+
+Libraries: PyTorch, Pandas, SQLAlchemy, python-docx, RapidFuzz, OpenAI
+
+Database: MySQL (MariaDB)
+
+Infrastructure: Local GPU/MPS Acceleration supported
+
+# ガイド
+
 # 初回
 ## NA_launcher.pyをダウンロードする。
 https://github.com/shiameyeung/NA/blob/main/NA_launcher.py
