@@ -383,11 +383,11 @@ def configure_keywords():
         "请选择筛选模式 / フィルタリングモードを選択：\n"
         "1. 关键词: 2025 AI x Healthcare 分析用 (默认)\n"
         "2. 关键词: その他 (自定义输入)\n"
-        "3. AI语义: (sentence-transformers/all-MiniLM-L6-v2)",
+        "3. (BETA)AI语义: (sentence-transformers/all-MiniLM-L6-v2)",
         "モードを選択してください：\n"
         "1. キーワード: 2025 AI x ヘルスケア分析用 (デフォルト)\n"
         "2. キーワード: その他 (カスタム入力)\n"
-        "3. AI識別: (sentence-transformers/all-MiniLM-L6-v2)",
+        "3. (BETA)AI識別: (sentence-transformers/all-MiniLM-L6-v2)",
         "🔑"
     )
     
@@ -395,11 +395,9 @@ def configure_keywords():
     
     if choice == "3":
         USE_SEMANTIC_FILTER = True
-        print("✅ 已启用 AI 语义筛选模式 / AI識別的フィルタリングを有効にしました")
+        print("✅ (BETA)已启用 AI 语义筛选模式 / AI識別的フィルタリングを有効にしました")
         # 加载模型 (如果之前没加载的话，确保这里有模型可用)
         # 注意：脚本开头已经加载了 model_emb，这里直接用就行
-        print(f"🧠 使用模型: sentence-transformers/all-MiniLM-L6-v2")
-        print(f"📌 标杆句子: {ANCHOR_TEXT}")
         
     elif choice == "2":
         print("\n👉 请输入自定义关键词，格式如：'keyword1','keyword2'...")
