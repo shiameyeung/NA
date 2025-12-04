@@ -1471,30 +1471,45 @@ def main():
             step1()
             step2(mysql_url)
             
+            # 标记：是否已经跑过 AI 清洗
+            ai_cleaned_done = False
+
             # 跑完 Step 1-2 后，进入子菜单
             while True:
                 print("\n" + "="*60)
-                print("🎉 [Step 1-2] 完成 / 完了")
-                print("   文件已生成: result_mapping_todo.csv")
-                print("   ファイル生成完了: result_mapping_todo.csv")
-                print("-" * 60)
-                print("👉 接下来你想做什么？/ 次の操作を選択してください：")
-                print("   [a] 🤖 运行 AI 自动名寄せ (推荐) / 🤖AI自動クリーニングを実行 [推奨]")
-                print("   [b] ⚠️ 跳过清洗，直接入库，输出最终结果 (慎用) / ⚠️AI自動クリーニングせずに、DB登録へ進む、結果を出力")
-                print("   [e] 👋 退出程序（人力名寄せ时） / 👋終了（手作業で名寄せの場合）")
+                
+                if not ai_cleaned_done:
+                    # --- 状态 A：刚跑完提取，还没清洗 ---
+                    print("🎉 [Step 1-2] 完成 / 完了")
+                    print("   文件已生成: result_mapping_todo.csv")
+                    print("   ファイル生成完了: result_mapping_todo.csv")
+                    print("-" * 60)
+                    print("👉 接下来建议做什么？/ 次のステップ：")
+                    print("   [a] 🤖 运行 AI 自动名寄せ (强烈推荐) / AI自動名寄せを実行 [推奨]")
+                    print("   [b] ⚠️ 跳过清洗，直接入库・分析・結果出力 / そのままDB登録へ進む・分析・結果出力")
+                else:
+                    # --- 状态 B：已经跑完 AI名寄せ ---
+                    print("✨ [Step 2.5] AI名寄せ已完成 / AI名寄せ完了")
+                    print("   请打开 result_mapping_todo.csv 简单检查一下，确认无误后继续。")
+                    print("   名寄せ完了のresult_mapping_todo.csvを確認し、問題なければ次へ進んでください。")
+                    print("-" * 60)
+                    print("👉 下一步 / Next Step：")
+                    print("   [b] 🚀 确认无误，执行入库・分析・結果出力 / 確認OK、DB登録・分析・結果出力")
+                    print("   [a] 🔄 不满意，重跑 AI 清洗 / もう一度AIを実行")
+
+                print("   [e] 👋 退出程序 / 一旦終了")
                 print("="*60)
                 
                 sub_c = input("Input [a/b/e]: ").strip().lower()
                 
                 if sub_c == "a":
                     step_ai_autofill()
-                    print("\n✅ AI 清洗完成。请人工确认 CSV 无误后，选择 [b] 进行入库。")
-                    print("✅ AI処理完了。CSVを確認後、[b] を選択してDB登録してください。")
-                    # 不 break，允许用户继续选 b
+                    ai_cleaned_done = True # 标记为已清洗
                     
                 elif sub_c == "b":
                     step3(mysql_url)
                     step4()
+                    print("🎉 完成！ result_adjacency_list.csvやpivot_table.csvを確認してください〜")
                     sys.exit(0) # 全部完成，退出
                     
                 elif sub_c == "e":
@@ -1504,10 +1519,8 @@ def main():
         elif choice == "2":
             # --- 阶段二：单独运行 AI 清洗 ---
             step_ai_autofill()
-            print("\n✅ 完成。现在您可以重新运行程序并选择选项 [3] 进行入库。")
-            print("✅ 完了。プログラムを再起動し、オプション [3] でDB登録を行ってください。")
-            # 这里的逻辑可以视情况改为 continue 或者 exit，目前设计为回到主菜单或退出都可以
-            input("按回车键返回主菜单... / Enterキーでメニューに戻る...")
+            print("\n✅ 完成。您可以选择 [3] 进行入库，或输入 [e] 退出。\n✅ 完成。 [3] でDB登録・分析・結果出力、もしくは [e] で終了。")
+            # 这里可以不强制跳转，让用户自己选
 
         elif choice == "3":
             # --- 阶段三：入库与分析 ---
