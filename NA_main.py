@@ -37,121 +37,105 @@ import sys, subprocess, os
 
 def ensure_env() -> None:
     """
-    ❶ 判断 Python 版本，给出“老依赖 / 新依赖”两套清单  
-    ❷ 先升级 pip / setuptools / wheel，再确保 packaging 与 requests 存在  
-    ❸ 安装或升级其余依赖；缺什么自动补什么  
-    ❹ 若本轮确实安装过东西，则 cute_box 提示后 sys.exit(0)，
-       让用户重新执行主脚本；否则直接返回继续跑
+    环境自检与自动修复程序
+    1. 检查所有必要的库 (包括 OpenAI, GLiNER, RapidFuzz 等)
+    2. 缺失则自动调用 pip 安装
+    3. 安装完成后自动重启脚本，实现无缝体验
     """
-    import sys, subprocess
+    import sys
+    import subprocess
+    import pkg_resources
+    from pkg_resources import DistributionNotFound, VersionConflict
 
-    # ---------- 0. 小工具 ----------
-    def pip_install(pkgs: list[str]):
-        """统一 pip 安装入口（带 -U 升级）"""
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-U", *pkgs],
-            stdout=subprocess.DEVNULL  # 保持输出简洁，可按需去掉
-        )
-
-    # ---------- 1. 先升级 pip / setuptools / wheel ----------
-    cute_box(
-        "正在升级 pip / setuptools / wheel …",
-        "pip / setuptools / wheel をアップグレード中…",
-        "🔧"
-    )
-    pip_install(["pip", "setuptools", "wheel"])
-
-    # ---------- 2. 确保 packaging & requests 存在 ----------
-    for base_pkg, jp_name in [("packaging", "packaging"), ("requests", "requests")]:
-        try:
-            __import__(base_pkg)
-        except ImportError:
-            cute_box(
-                f"缺少 {base_pkg}，正在安装…",
-                f"{jp_name} がありません。インストール中…",
-                "📦"
-            )
-            pip_install([base_pkg])
-
-    # 之后要用 packaging 里的版本比较
-    from importlib.metadata import version, PackageNotFoundError
-    from packaging.specifiers import SpecifierSet
-    from packaging.requirements import Requirement
-
-    # ---------- 3. 根据 Python 版本决定依赖 ----------
-    py_major, py_minor = sys.version_info[:2]
-    is_new_py = (py_major, py_minor) >= (3, 13)
-
-    if is_new_py:
-        core_pkgs = ["numpy>=2.0.0", "spacy>=3.8.7", "thinc>=8.3.6", "blis>=1.0.0"]
-        torch_spec = "torch==2.6.0"          # PyTorch 目前对 3.13 仅此版本
-    else:
-        core_pkgs = ["numpy<2.0.0", "spacy<3.8.0", "thinc<8.3.0", "blis<0.8.0"]
-        torch_spec = "torch>=2,<2.3"
-
-    common_pkgs = [
-        "pandas", "tqdm", "sqlalchemy", "pymysql",
-        "rapidfuzz", "python-docx", "sentence-transformers",
-        torch_spec,
+    # --- 定义项目所需的全部依赖 ---
+    # 格式遵循 pip requirements.txt 标准
+    REQUIRED_PACKAGES = [
+        # 基础工具
+        "pandas", 
+        "tqdm", 
+        "requests",
+        "packaging",
+        
+        # 数据库
+        "sqlalchemy", 
+        "pymysql",
+        
+        # 文本处理
+        "python-docx", 
+        "rapidfuzz",  # 模糊匹配
+        
+        # AI 与 模型 (核心)
+        "openai>=1.0.0",          # 必须 1.0 以上版本
+        "gliner",                 # 新增：实体提取
+        "sentence-transformers",  # 语义向量
+        "torch",                  # 深度学习后端
+        "transformers",           # HuggingFace 工具
+        
+        # 旧版兼容 (如果还用 spaCy)
+        "spacy",
     ]
 
-    wanted = core_pkgs + common_pkgs
+    # 检查当前 Python 版本以决定特定依赖 (可选)
+    py_major, py_minor = sys.version_info[:2]
+    if (py_major, py_minor) >= (3, 13):
+        # Python 3.13+ 可能需要特定版本的 numpy 或其他库，这里暂且保留通用
+        pass
 
-    # ---------- 4. 判断哪些包需要安装 / 升级 ----------
-    def need_install(spec: str) -> bool:
-        req = Requirement(spec)
+    missing = []
+    
+    # --- 1. 检查缺失包 ---
+    for pkg in REQUIRED_PACKAGES:
         try:
-            cur_ver = version(req.name)
-        except PackageNotFoundError:
-            return True
-        return cur_ver not in SpecifierSet(str(req.specifier))
+            pkg_resources.require(pkg)
+        except (DistributionNotFound, VersionConflict):
+            missing.append(pkg)
 
-    to_install = [spec for spec in wanted if need_install(spec)]
-
-    did_install = False
-    if to_install:
-        cute_box(
-            "安装 / 升级以下依赖：\n" + "\n".join(to_install),
-            "次の依存関係をインストール / アップグレードします：\n" + "\n".join(to_install),
-            "📦"
-        )
-        try:
-            pip_install(to_install)
-            did_install = True
-        except subprocess.CalledProcessError:
-            cute_box(
-                "❌ 自动安装失败，请手动根据日志解决依赖后重试",
-                "❌ 自動インストール失敗。ログを確認し、手動で依存関係を解決してください",
-                "⚠️"
-            )
-            sys.exit(1)
-
-    # ---------- 5. 确保 spaCy 英文模型 ----------
+    # --- 2. 检查 spaCy 模型 (特例) ---
     try:
         import spacy
-        spacy.load("en_core_web_sm")
-    except (ImportError, OSError):
+        if not spacy.util.is_package("en_core_web_sm"):
+            missing.append("spacy_model:en_core_web_sm")
+    except ImportError:
+        pass # spacy 本身缺失会在上面被捕获
+
+    # --- 3. 执行安装 ---
+    if missing:
         cute_box(
-            "下载 spaCy 模型 en_core_web_sm …",
-            "spaCy モデル en_core_web_sm をダウンロード中…",
+            f"检测到缺失依赖，正在自动安装...\n缺失项: {', '.join(missing)}",
+            f"不足している依存関係を検出しました。自動インストール中...\n対象: {', '.join(missing)}",
+            "📦"
+        )
+        
+        # 分离普通包和 spaCy 模型
+        pip_pkgs = [p for p in missing if not p.startswith("spacy_model:")]
+        spacy_models = [p for p in missing if p.startswith("spacy_model:")]
+
+        # 安装 pip 包
+        if pip_pkgs:
+            try:
+                # 注意：这里去掉了 stdout=subprocess.DEVNULL，让用户看到进度条
+                subprocess.check_call([sys.executable, "-m", "pip", "install"] + pip_pkgs)
+            except subprocess.CalledProcessError as e:
+                cute_box(f"安装失败: {e}\n请尝试手动运行: pip install {' '.join(pip_pkgs)}", 
+                         "インストールに失敗しました。手動で実行してください。", "❌")
+                sys.exit(1)
+
+        # 安装 spaCy 模型
+        for model in spacy_models:
+            model_name = model.split(":")[1]
+            print(f"⬇️ Downloading spaCy model: {model_name}...")
+            subprocess.check_call([sys.executable, "-m", "spacy", "download", model_name])
+
+        cute_box(
+            "依赖安装完成！正在自动重启程序...",
+            "インストール完了！プログラムを自動再起動します...",
             "🔄"
         )
-        subprocess.check_call([sys.executable, "-m", "spacy", "download", "en_core_web_sm", "openai"])
-        did_install = True
 
-    # ---------- 6. 结束语 ----------
-    cute_box(
-        "依赖检查完毕，脚本可以运行！",
-        "依存関係チェック完了。スクリプトを実行できます！",
-        "🎉"
-    )
-    if did_install:
-        cute_box(
-            "首次/刚升级完，请重新运行主脚本。",
-            "初回実行またはアップグレード直後です。もう一度メインスクリプトを実行してください。",
-            "🔁"
-        )
-        sys.exit(0)
+        # --- 4. 自动重启脚本 (黑科技) ---
+        # 使用 os.execv 重新加载当前脚本，继承当前的进程 ID
+        # 这样用户就不需要手动再输一次命令了
+        os.execv(sys.executable, [sys.executable] + sys.argv)
 
 # —————— 在脚本一启动就先确保环境 ——————
 ensure_env()
