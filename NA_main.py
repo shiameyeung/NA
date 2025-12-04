@@ -349,28 +349,40 @@ def ask_mysql_url() -> str:
     return f"mysql+pymysql://{key}:3306/na_data?charset=utf8mb4" 
 
 def choose() -> str:
+    """
+    显示主菜单，返回用户选择
+    """
     cute_box(
-        "① 初次运行（Step-1 ➜ Step-2）\n"
-        "② mapping适用/邻接（Step-3/4）\n"
-        "③ [新] AI 自动填写 mapping_todo (GPT Auto-fill)\n\n"
-        "作成者：楊 天楽　協力：李 宗昊 李 佳璇 @関西大学　伊佐田研究室",  # <--- 把署名放在这里
+        "CorpLink-AI 自动化处理系统\n"
+        "------------------------------------------------\n"
+        "① [开始] 提取数据 (Step 1-2)\n"
+        "   - 从文档提取句子 -> 初步识别 -> 生成待清洗表\n\n"
+        "② [清洗] AI 自动名寄せ (Step 2.5)\n"
+        "   - 调用 GPT API 自动清洗/标准化 result_mapping_todo.csv\n\n"
+        "③ [完成] 入库与分析 (Step 3-4)\n"
+        "   - 读取清洗后的表 -> 存入数据库 -> 生成网络分析表\n"
+        "------------------------------------------------\n"
+        "作者：杨天乐 @ 关西大学 伊佐田研究室",
         
-        "① 初回実行\n"
-        "② mapping適用/隣接\n"
-        "③ [New] AI 自動入力",
+        "CorpLink-AI 自動化処理システム\n"
+        "------------------------------------------------\n"
+        "① [開始] データ抽出・一次処理 (Step 1-2)\n"
+        "   - ドキュメント解析 -> 企業名抽出 -> 候補リスト生成\n\n"
+        "② [浄化] AIによる自動名寄せ (Step 2.5)\n"
+        "   - GPT APIを利用して、表記ゆれやノイズを自動修正\n\n"
+        "③ [完了] DB登録・ネットワーク分析 (Step 3-4)\n"
+        "   - クリーニング済みデータをDBへ登録 -> 分析用テーブル出力\n"
+        "------------------------------------------------\n"
+        "作成者：楊 天楽　協力：李 宗昊 李 佳璇 @関西大学",
         
-        "🤖"  # <--- 第三个参数必须是简短的图标
+        "🤖"
     )
     
-    c = input("请输入 1, 2 或 3: ").strip()
-    if c not in {"1", "2", "3"}: 
-        cute_box(
-            "无效选择，请输入 1 或 2 或 3！",
-            "無効な選択です。1 か 2 か 3 を入力してね！",
-            "🔄"
-        )
-        sys.exit(1)
-    return c
+    while True:
+        c = input("👉 请输入功能序号 / 番号を入力してください (1/2/3): ").strip()
+        if c in {"1", "2", "3"}:
+            return c
+        print("❌ 输入无效，请重新输入 / 無効な入力です")
 
 # ---------- 【新增功能】关键词配置函数 ----------
 # 全局变量
@@ -387,39 +399,39 @@ def configure_keywords():
     global KEYWORD_ROOTS, USE_SEMANTIC_FILTER
     
     cute_box(
-        "请选择筛选模式 / フィルタリングモードを選択：\n"
-        "1. 关键词: 2025 AI x Healthcare 分析用 (默认)\n"
-        "2. 关键词: その他 (自定义输入)\n"
-        "3. (BETA)AI语义: (sentence-transformers/all-MiniLM-L6-v2)",
-        "モードを選択してください：\n"
-        "1. キーワード: 2025 AI x ヘルスケア分析用 (デフォルト)\n"
-        "2. キーワード: その他 (カスタム入力)\n"
-        "3. (BETA)AI識別: (sentence-transformers/all-MiniLM-L6-v2)",
-        "🔑"
+        "【配置】请选择信息抽取的模式：\n"
+        "1. 关键词模式: 2025 AI x Healthcare (默认)\n"
+        "2. 关键词模式: 自定义输入\n"
+        "3. AI语义模式: 语义向量匹配 (Beta)(sentence-transformers/all-MiniLM-L6-v2)",
+        
+        "【設定】情報抽出モードを選択してください：\n"
+        "1. キーワードモード: 2025 AI x ヘルスケア (デフォルト)\n"
+        "2. キーワードモード: カスタム入力 (その他)\n"
+        "3. AIモード: ベクトル類似度マッチング (Beta)(sentence-transformers/all-MiniLM-L6-v2)",
+        "⚙️"
     )
     
-    choice = input("请输入 1, 2 或 3 (默认1): ").strip()
+    choice = input("👉 请输入 / 番号を入力 (1/2/3) [Default: 1]: ").strip()
     
     if choice == "3":
         USE_SEMANTIC_FILTER = True
-        print("✅ (BETA)已启用 AI 语义筛选模式 / AI識別的フィルタリングを有効にしました")
-        # 加载模型 (如果之前没加载的话，确保这里有模型可用)
-        # 注意：脚本开头已经加载了 model_emb，这里直接用就行
+        print("\n✅ [System] AI语义筛选已启用 (Model: sentence-transformers/all-MiniLM-L6-v2)")
+        print("   [System] AIフィルタリングが有効になりました")
         
     elif choice == "2":
-        print("\n👉 请输入自定义关键词，格式如：'keyword1','keyword2'...")
+        print("\n👉 请输入自定义关键词 (逗号分隔) / カスタムキーワードを入力 (カンマ区切り):")
         raw_input = input(">>>>>> ").strip()
         try:
             custom_keys = [k.strip().strip("'").strip('"') for k in raw_input.split(',') if k.strip()]
-            if not custom_keys: raise ValueError("Empty input")
+            if not custom_keys: raise ValueError
             KEYWORD_ROOTS = custom_keys
-            print(f"✅ 已加载 {len(KEYWORD_ROOTS)} 个自定义关键词")
+            print(f"✅ [System] 已加载 {len(KEYWORD_ROOTS)} 个自定义关键词")
         except:
-            print("❌ 格式错误，回退到默认模式")
+            print("❌ [Error] 格式错误，已回退到默认模式 / フォーマットエラー、デフォルトに戻ります")
             KEYWORD_ROOTS = PRESET_KEYWORDS_2025
     else:
         KEYWORD_ROOTS = PRESET_KEYWORDS_2025
-        print("✅ 已加载默认关键词 (2025 AI x Healthcare)")
+        print("✅ [System] 已加载默认关键词集 / デフォルトキーワードをロードしました")
 
 def dedup_company_cols(df: pd.DataFrame) -> pd.DataFrame:
     comp_cols = [c for c in df.columns if c.startswith("company_")]
@@ -1454,87 +1466,71 @@ def step4():
         "📊"
     )
 def main():
+    # 1. 连接数据库
     mysql_url = ask_mysql_url()
     try:
         create_engine(mysql_url).connect().close()
-        cute_box(
-            "数据库连接成功！",
-            "データベース接続 成功！",
-            "🔗"
-        )
+        print("✅ 数据库连接成功 / データベース接続成功")
     except Exception as e:
-        cute_box(
-            f"数据库连接失败：{e}",
-            f"データベース接続 失敗：{e}",
-            "❌"
-        )
+        cute_box(f"数据库连接失败：{e}", f"データベース接続 失敗：{e}", "❌")
         sys.exit(1)
         
+    # 2. 配置关键词模式
     configure_keywords()
     
-    choice = choose()
+    # 3. 主菜单循环
+    while True:
+        choice = choose()
 
-    if choice == "1":
-        step1()
-        step2(mysql_url)
-
-        # —— 新增：跑完 Step-2 后等待用户指令 ——
-        while True:
-            # 👇 修改了这里的提示文字，增加了选项 3
-            print("\n---------------------------------------------------------------")
-            print("✅ Step-1/2 完成！请检查 result_mapping_todo.csv (Step-1/2 完了)")
-            print("👉 输入 3 : 让 AI 自动填写 Mapping 表 (AI自動入力) [推荐/推奨]")
-            print("👉 输入 2 : 继续 Step-3/4 (入库+分析) (Step-3/4 へ進む)")
-            print("👉 输入 e : 退出程序 (終了)")
-            print("---------------------------------------------------------------")
+        if choice == "1":
+            # --- 阶段一：提取 ---
+            step1()
+            step2(mysql_url)
             
-            nxt = input("请输入/入力してください (3/2/e): ").strip().lower()
-            
-            # 👇 新增：选项 3 的逻辑
-            if nxt == "3":
-                step_ai_autofill()
-                print("\n✅ AI 填写完毕！请人工简单检查一下 csv，然后输入 2 继续。")
-                # 注意：这里没有 break，循环继续，方便你填完后直接选 2
+            # 跑完 Step 1-2 后，进入子菜单
+            while True:
+                print("\n" + "="*60)
+                print("🎉 [Step 1-2] 完成 / 完了")
+                print("   文件已生成: result_mapping_todo.csv")
+                print("   ファイル生成完了: result_mapping_todo.csv")
+                print("-" * 60)
+                print("👉 接下来你想做什么？/ 次の操作を選択してください：")
+                print("   [a] 🤖 运行 AI 自动名寄せ (推荐) / 🤖AI自動クリーニングを実行 [推奨]")
+                print("   [b] ⚠️ 跳过清洗，直接入库，输出最终结果 (慎用) / ⚠️AI自動クリーニングせずに、DB登録へ進む、結果を出力")
+                print("   [e] 👋 退出程序（人力名寄せ时） / 👋終了（手作業で名寄せの場合）")
+                print("="*60)
                 
-            elif nxt == "2":
-                step3(mysql_url)
-                step4()
-                cute_box(
-                "Step-3/4 全部完成！",
-                "Step-3/4 全て完了しました！",
-                "🎉"
-                )
-                break # 跑完流程，退出循环
+                sub_c = input("Input [a/b/e]: ").strip().lower()
                 
-            elif nxt == "e":
-                cute_box(
-                "已退出，拜拜～",
-                "終了しました、またね！",
-                "👋"
-                )
-                return
-                
-            else:
-                cute_box(
-                "无效输入，请再试一次！",
-                "無効な入力です。もう一度入力してね！",
-                "🔄"
-                )
-                
-    elif choice == "3":
-        # 直接运行 AI 自动填写
-        step_ai_autofill()
-        cute_box("填完了！现在你可以选 2 来执行入库了", "完了！2を選んでDB登録してください", "👍")
-        
-    else:   # choice == "2"
-        step3(mysql_url)
-        step4()
-        cute_box(
-        "Step-3/4 全部完成！",
-        "Step-3/4 全て完了しました！",
-         "🎉"
-        )
+                if sub_c == "a":
+                    step_ai_autofill()
+                    print("\n✅ AI 清洗完成。请人工确认 CSV 无误后，选择 [b] 进行入库。")
+                    print("✅ AI処理完了。CSVを確認後、[b] を選択してDB登録してください。")
+                    # 不 break，允许用户继续选 b
+                    
+                elif sub_c == "b":
+                    step3(mysql_url)
+                    step4()
+                    sys.exit(0) # 全部完成，退出
+                    
+                elif sub_c == "e":
+                    print("👋 Bye!")
+                    sys.exit(0)
 
+        elif choice == "2":
+            # --- 阶段二：单独运行 AI 清洗 ---
+            step_ai_autofill()
+            print("\n✅ 完成。现在您可以重新运行程序并选择选项 [3] 进行入库。")
+            print("✅ 完了。プログラムを再起動し、オプション [3] でDB登録を行ってください。")
+            # 这里的逻辑可以视情况改为 continue 或者 exit，目前设计为回到主菜单或退出都可以
+            input("按回车键返回主菜单... / Enterキーでメニューに戻る...")
+
+        elif choice == "3":
+            # --- 阶段三：入库与分析 ---
+            step3(mysql_url)
+            step4()
+            print("🎉 所有任务已完成 / 全てのタスクが完了しました")
+            sys.exit(0)
 
 if __name__ == "__main__":
     main()
