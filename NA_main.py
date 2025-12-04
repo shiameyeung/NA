@@ -1118,52 +1118,86 @@ def step3(mysql_url: str):
             df_map.at[idx, "Std_Result"] = "No input"
             continue
 
-        # ① Ban（输入 0）
+        # Case A: Ban (0)
         if canon_input == "0":
             if alias_raw_l not in ban_lower:
-                with engine.begin() as conn:
-                    conn.execute(text(
-                        "INSERT INTO ban_list(alias, process_id) VALUES (:a, :pid)"
-                    ), {"a": alias_raw, "pid": process_id})
-                ban_lower.add(alias_raw_l)
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text(
+                            "INSERT IGNORE INTO ban_list(alias, process_id) VALUES (:a, :pid)"
+                        ), {"a": alias_raw, "pid": process_id})
+                    ban_lower.add(alias_raw_l)
+                except Exception as e:
+                    print(f"⚠️ Ban insert skip: {e}")
             df_map.at[idx, "Std_Result"]   = "Banned"
             df_map.at[idx, "Process_ID"] = f"'{process_id}"
             continue
 
-        # ② 数字 → 视为 existing canonical_id
+        # Case B: Existing ID (数字)
         if canon_input.isdigit():
             cid = int(canon_input)
             if cid not in canon_map:
                 df_map.at[idx, "Std_Result"] = "Bad ID"
                 continue
             canon_name = canon_map[cid]
+            
+        # Case C: New/Text Canonical
         else:
-            # 新 canonical
             ci_l = canon_input.lower()
+            # 如果内存里没这个公司，尝试插入
             if ci_l not in canon_lower2id:
-                with engine.begin() as conn:
-                    res = conn.execute(text(
-                        "INSERT INTO company_canonical(canonical_name, process_id) VALUES (:c, :pid)"
-                    ), {"c": canon_input, "pid": process_id})
-                new_id = res.lastrowid
+                try:
+                    # --- 尝试插入新公司 ---
+                    with engine.begin() as conn:
+                        res = conn.execute(text(
+                            "INSERT INTO company_canonical(canonical_name, process_id) VALUES (:c, :pid)"
+                        ), {"c": canon_input, "pid": process_id})
+                    new_id = res.lastrowid
+                    
+                except Exception as e:
+                    # --- 【关键修复】如果报错(重复)，说明数据库里其实已经有了 ---
+                    # 可能是因为重音符号(É vs E)导致 Python 没认出来，但数据库认出来了
+                    print(f"⚠️ 发现潜在重复公司: {canon_input}，尝试从数据库获取 ID...")
+                    with engine.begin() as conn:
+                        # 尝试直接用名字查 ID
+                        rows = conn.execute(text(
+                            "SELECT id FROM company_canonical WHERE canonical_name = :c"
+                        ), {"c": canon_input}).fetchall()
+                        
+                        if rows:
+                            new_id = rows[0][0]
+                            print(f"   -> 已找回现有 ID: {new_id}")
+                        else:
+                            # 极其罕见的情况：插入报错但又查不到，记录错误跳过
+                            print(f"❌ 无法解决的冲突，跳过此条: {e}")
+                            df_map.at[idx, "Std_Result"] = "DB Error"
+                            continue
+
+                # 更新内存字典
                 canon_map[new_id]        = canon_input
-                canon_lower2id[ci_l] = new_id
+                canon_lower2id[ci_l]     = new_id
                 df_map.at[idx, "Process_ID"] = f"'{process_id}"
                 canon_name = canon_input
             else:
+                # 内存里已经有了，直接用
                 canon_name = canon_map[canon_lower2id[ci_l]]
-        # ③ 写 alias（忽略大小写已存在）
+
+        # Case D: Insert Alias
         if alias_raw_l in alias_lower_map or alias_raw_l in canon_lower2id:
             df_map.at[idx, "Std_Result"] = "Exists"
             continue
-        with engine.begin() as conn:
-            conn.execute(text(
-                "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) "
-                "VALUES (:a, :cid, :pid)"
-            ), {"a": alias_raw, "cid": canon_lower2id[canon_name.lower()], "pid": process_id})
-        alias_lower_map[alias_raw_l] = canon_name
-        df_map.at[idx, "Std_Result"]   = "Added"
-        df_map.at[idx, "Process_ID"] = f"'{process_id}"
+            
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "INSERT IGNORE INTO company_alias(alias, canonical_id, process_id) "
+                    "VALUES (:a, :cid, :pid)"
+                ), {"a": alias_raw, "cid": canon_lower2id[canon_name.lower()], "pid": process_id})
+            alias_lower_map[alias_raw_l] = canon_name
+            df_map.at[idx, "Std_Result"]   = "Added"
+            df_map.at[idx, "Process_ID"] = f"'{process_id}"
+        except Exception as e:
+            print(f"⚠️ Alias insert error: {e}")
 
     # 先写回 todo，再做回写 result.csv
     df_map.to_csv(todo_f, index=False, encoding="utf-8-sig")
