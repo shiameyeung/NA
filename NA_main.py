@@ -1471,14 +1471,14 @@ def step4():
     # --- [修改] 保存时包含元数据列 ---
     if not out.empty:
         # 确保只保存存在的列
-        output_cols = ["company_a", "company_b"] + [c for c in meta_cols if c in out.columns]
+        output_cols = [c for c in meta_cols if c in out.columns] + ["company_a", "company_b"]
         out[output_cols].to_csv(
             BASE_DIR / "result_adjacency_list.csv",
             index=False, encoding="utf-8-sig"
         )
     else:
         # 空表处理
-        output_cols = ["company_a", "company_b"] + meta_cols
+        output_cols = meta_cols + ["company_a", "company_b"]
         _pd.DataFrame(columns=output_cols).to_csv(
             BASE_DIR / "result_adjacency_list.csv",
             index=False, encoding="utf-8-sig"
