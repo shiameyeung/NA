@@ -1437,41 +1437,71 @@ def step4():
     # 1) 读 CSV
     df = _pd.read_csv(BASE_DIR / "result.csv", dtype=str).fillna("")
 
-    # 2) 准备输出行：注意这里给每一条都加上 value=1
+    # 2) 准备输出行
     rows = []
+    
+    # --- [修改] 定义需要保留的元数据列 ---
+    meta_cols = ["Tier_1", "Tier_2", "Filename", "Date", 
+                 "Title", "Publisher", "Sentence", 
+                 "Hit_Count", "Matched_Keywords"]
+
     for _, r in tqdm(df.iterrows(), desc="生成邻接表", total=len(df)):
         comps = [r[f"company_{i}"] 
                  for i in range(1, MAX_COMP_COLS+1) 
                  if r[f"company_{i}"].strip()]
+        
+        # --- [修改] 提取当前行的元数据 ---
+        # 使用 get 避免列不存在时报错
+        current_meta = {col: r.get(col, "") for col in meta_cols}
+
         for a, b in itertools.permutations(comps, 2):
-            rows.append({
+            # --- [修改] 构建包含元数据的字典 ---
+            row_data = {
                 "company_a": a,
                 "company_b": b,
                 "value": 1,
-            })
+            }
+            row_data.update(current_meta) # 合并元数据
+            rows.append(row_data)
 
     # 3) 构建完整 DataFrame
     out = _pd.DataFrame(rows)
 
-    # 4) 写 adjacency list （只保留 a/b 两列）
-    out[['company_a','company_b']].to_csv(
-        BASE_DIR / "result_adjacency_list.csv",
-        index=False, encoding="utf-8-sig"
-    )
+    # 4) 写 adjacency list
+    # --- [修改] 保存时包含元数据列 ---
+    if not out.empty:
+        # 确保只保存存在的列
+        output_cols = ["company_a", "company_b"] + [c for c in meta_cols if c in out.columns]
+        out[output_cols].to_csv(
+            BASE_DIR / "result_adjacency_list.csv",
+            index=False, encoding="utf-8-sig"
+        )
+    else:
+        # 空表处理
+        output_cols = ["company_a", "company_b"] + meta_cols
+        _pd.DataFrame(columns=output_cols).to_csv(
+            BASE_DIR / "result_adjacency_list.csv",
+            index=False, encoding="utf-8-sig"
+        )
+
     cute_box(
-        "Step4 已生成邻接表：result_adjacency_list.csv",
-        "Step4 隣接リストを生成しました：result_adjacency_list.csv",
+        "Step4 已生成邻接表(含元数据)：result_adjacency_list.csv",
+        "Step4 隣接リスト(メタデータ付)を生成しました：result_adjacency_list.csv",
         "📋"
     )
 
     # ——— 生成带行列标题的 Pivot Table ———
-    pivot = out.pivot_table(
-        index="company_a",      # 行标签
-        columns="company_b",    # 列标签
-        values="value",         # 聚合字段
-        aggfunc="sum",          # 把所有 value=1 累加
-        fill_value=""           # 0 或 NaN 都显示空白
-    )
+    # 透视表不需要元数据，只统计数量
+    if not out.empty:
+        pivot = out.pivot_table(
+            index="company_a",      # 行标签
+            columns="company_b",    # 列标签
+            values="value",         # 聚合字段
+            aggfunc="sum",          # 把所有 value=1 累加
+            fill_value=""           # 0 或 NaN 都显示空白
+        )
+    else:
+        pivot = _pd.DataFrame()
 
     # 5) 导出带行/列标题的矩阵
     pivot.to_csv(
@@ -1483,6 +1513,7 @@ def step4():
         "Step4 ピボットテーブルを生成しました：pivot_table.csv",
         "📊"
     )
+    
 def main():
     # 1. 连接数据库
     mysql_url = ask_mysql_url()
